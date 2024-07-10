@@ -50,3 +50,54 @@ Function Get-ApiTokenFromVault {
     )
     Get-Secret -Name $secretName -Vault $vaultName
 }
+
+class ConbeeConfig {
+    [string]$Hostname = "127.0.0.1"
+    [securestring]$Token
+    [bool]$Ssl = $false
+}
+
+Function New-ConbeeConfig {
+    [ConbeeConfig]::new()
+}
+
+function New-ConbeeSession {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ConbeeConfig]$ConbeeConfig
+    )
+    $script:BaseUri = "$(if ($ConbeeConfig.Ssl) {'https'} else {'http'})://$($ConbeeConfig.Hostname)"
+    $script:Token = if (-not $ConbeeConfig.Token) {Get-ApiTokenFromVault} else {$ConbeeConfig.Token}
+}
+
+Function New-ConbeeApiCall {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Method,
+        [Parameter(Mandatory)]
+        [string]$Endpoint,
+        [PSCustomObject]$Data
+    )
+    $params = @{
+        Uri = "$($script:BaseUri)/api/$($script:Token | ConvertFrom-SecureString -AsPlainText)/$endpoint/"
+        Method = $method
+        Headers = @{Accept = "application/json"}
+    }
+    # TODO: TEST OUT THE BELOW
+    # if ($data) {
+    #     # Strip out any empty strings or null values from the data object before converting and sending to the API.
+    #     $x = [PSCustomObject]@{}
+    #     $data.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne "" } | ForEach-Object { $x | Add-Member -Type NoteProperty -Name $_.Name -Value $_.Value }
+    #     $jsonData = $x | ConvertTo-Json
+    #     $params.Add("Body", $jsonData)
+    #     $params.Headers.Add("Content-Type", "application/json")
+    # }
+
+    Invoke-RestMethod @params
+}
+
+Function Get-AllSensors {
+    New-ConbeeApiCall -Method GET -Endpoint "sensors"
+}
