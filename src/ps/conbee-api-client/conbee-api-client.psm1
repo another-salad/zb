@@ -4,7 +4,6 @@ Import-Module Microsoft.PowerShell.SecretStore
 
 $script:ConbeeVaultName = "ConbeeVault-Client"
 $script:DefaultConbeeApiSecretName = "ConbeeApiToken"
-$script:NodesToIgnoreXMLPath = "$PSScriptRoot/nodes-to-ignore.xml"
 
 ## Secret vault fun
 # https://learn.microsoft.com/en-us/powershell/utility-modules/secretmanagement/get-started/using-secretstore?view=ps-modules
@@ -97,77 +96,6 @@ Function New-ConbeeApiCall {
     # }
 
     Invoke-RestMethod @params
-}
-
-Function New-NodeToIgnoreXML {
-    [xml]$xml = “<nodes></nodes>”
-    $xml.Save($script:NodesToIgnoreXMLPath)
-}
-
-# TODO: This should be able to take objects from get-allSensors and add them to the XML file.
-Function Update-NodeToIgnoreXML {
-    [CmdletBinding()]
-    param (
-        [string]$NodeName,
-        [string]$ManufacturerName,
-        [string]$uniqueid
-    )
-    if (-not (Test-Path -Path $script:NodesToIgnoreXMLPath)) {
-        New-NodeToIgnoreXML
-    }
-    $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
-    $nodes = $xml.DocumentElement
-    $node = $xml.CreateElement("node")
-    $node.SetAttribute("name", $NodeName)
-    $node.SetAttribute("uniqueid", $uniqueid)
-    $node.SetAttribute("manufacturername", $ManufacturerName)
-    $nodes.AppendChild($node)
-    $xml.Save($script:NodesToIgnoreXMLPath)
-}
-
-Function Set-SensorFilter {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors,
-        [ValidateSet("name", "uniqueid", "manufacturername")]
-        [string]$Property
-    )
-    $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
-    $Sensors | get-member -MemberType NoteProperty | ForEach-Object { $Sensors.($_.Name) } | where-object {$_.($Property) -notin $xml.nodes.node.($Property)}
-}
-
-Function Set-ManufacturerFilter {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors
-    )
-    process {
-        Set-SensorFilter -Sensors $Sensors -Property "manufacturername"
-    }
-}
-
-Function Set-NameFilter {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors
-    )
-    process {
-        Set-SensorFilter -Sensors $Sensors -Property "name"
-    }
-}
-
-Function Set-UniqueidFilter {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors
-    )
-    process {
-        Set-SensorFilter -Sensors $Sensors -Property "uniqueid"
-    }
 }
 
 Function Get-AllSensors {
