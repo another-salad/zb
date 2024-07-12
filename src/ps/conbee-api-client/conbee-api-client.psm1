@@ -104,72 +104,44 @@ Function New-NodeToIgnoreXML {
     $xml.Save($script:NodesToIgnoreXMLPath)
 }
 
-# TODO: This should be able to take objects from get-allSensors and add them to the XML file.
 Function Update-NodeToIgnoreXML {
     [CmdletBinding()]
     param (
-        [string]$NodeName,
-        [string]$ManufacturerName,
-        [string]$uniqueid
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$Sensor
     )
-    if (-not (Test-Path -Path $script:NodesToIgnoreXMLPath)) {
-        New-NodeToIgnoreXML
+    begin {
+        if (-not (Test-Path -Path $script:NodesToIgnoreXMLPath)) {
+            New-NodeToIgnoreXML
+        }
+        $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
     }
-    $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
-    $nodes = $xml.DocumentElement
-    $node = $xml.CreateElement("node")
-    $node.SetAttribute("name", $NodeName)
-    $node.SetAttribute("uniqueid", $uniqueid)
-    $node.SetAttribute("manufacturername", $ManufacturerName)
-    $nodes.AppendChild($node)
-    $xml.Save($script:NodesToIgnoreXMLPath)
+    process {
+        [xml]$nodeXml = [System.Management.Automation.PSSerializer]::Serialize(($Sensor | Select-Object name, uniqueid, manufacturername, modelid, etag))
+        $nodes = $xml.DocumentElement
+        $nodes.AppendChild($xml.ImportNode($nodeXml.Objs.obj, $true)) | out-null
+    }
+    end {
+        $xml.Save($script:NodesToIgnoreXMLPath)
+    }
 }
 
 Function Set-SensorFilter {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors,
-        [ValidateSet("name", "uniqueid", "manufacturername")]
-        [string]$Property
+        [object]$Sensors
     )
-    $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
-    $Sensors | get-member -MemberType NoteProperty | ForEach-Object { $Sensors.($_.Name) } | where-object {$_.($Property) -notin $xml.nodes.node.($Property)}
-}
-
-Function Set-ManufacturerFilter {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors
-    )
+    begin {
+        $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
+    }
     process {
-        Set-SensorFilter -Sensors $Sensors -Property "manufacturername"
+        # NOTE(Another-Salad): There must be a better way of doing the below, but this is all my brain can seemingly do right now...
+        $Sensors | get-member -MemberType NoteProperty | ForEach-Object { $Sensors.($_.Name) } | Where-object { $_.uniqueid -notin $xml.Nodes.Obj.MS.S."#text" }
     }
 }
 
-Function Set-NameFilter {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors
-    )
-    process {
-        Set-SensorFilter -Sensors $Sensors -Property "name"
-    }
-}
-
-Function Set-UniqueidFilter {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        $Sensors
-    )
-    process {
-        Set-SensorFilter -Sensors $Sensors -Property "uniqueid"
-    }
-}
-
+# Get-AllSensors | Set-SensorFilter
 Function Get-AllSensors {
     New-ConbeeApiCall -Method GET -Endpoint "sensors"
 }
