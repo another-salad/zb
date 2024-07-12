@@ -9,7 +9,7 @@ $script:NodesToIgnoreXMLPath = "$PSScriptRoot/nodes-to-ignore.xml"
 ## Secret vault fun
 # https://learn.microsoft.com/en-us/powershell/utility-modules/secretmanagement/get-started/using-secretstore?view=ps-modules
 
-
+## Vault functions start
 Function Set-NonInteractiveConbeeVault {
     [CmdletBinding()]
     param (
@@ -51,6 +51,7 @@ Function Get-ApiTokenFromVault {
     )
     Get-Secret -Name $secretName -Vault $vaultName
 }
+## Vault functions End
 
 class ConbeeConfig {
     [string]$Hostname = "127.0.0.1"
@@ -126,6 +127,17 @@ Function Update-NodeToIgnoreXML {
     }
 }
 
+Function Format-ZBDevices {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$ZBDevices
+    )
+    process {
+        $ZBDevices | get-member -MemberType NoteProperty | ForEach-Object { $ZBDevices.($_.Name) }
+    }
+}
+
 Function Set-SensorFilter {
     [CmdletBinding()]
     param (
@@ -137,11 +149,33 @@ Function Set-SensorFilter {
     }
     process {
         # NOTE(Another-Salad): There must be a better way of doing the below, but this is all my brain can seemingly do right now...
-        $Sensors | get-member -MemberType NoteProperty | ForEach-Object { $Sensors.($_.Name) } | Where-object { $_.uniqueid -notin $xml.Nodes.Obj.MS.S."#text" }
+        $Sensors | Format-ZBDevices | Where-object { $_.uniqueid -notin $xml.Nodes.Obj.MS.S."#text" }
     }
 }
 
-# Get-AllSensors | Set-SensorFilter
-Function Get-AllSensors {
+# Get-AllSensorsRaw | Set-SensorFilter
+Function Get-AllSensorsRaw {
     New-ConbeeApiCall -Method GET -Endpoint "sensors"
+}
+
+$SensorTypes = [pscustomobject]@{
+    Humidity = "ZHAHumidity"
+    Temperature = "ZHATemperature"
+}
+
+Function Get-FitleredSensorData {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]$SensorType
+    )
+    Get-AllSensorsRaw | Set-SensorFilter | Where-Object { $_.type -eq $SensorType }
+}
+
+Function Get-TemperatureSensors {
+    Get-FitleredSensorData $SensorTypes.Temperature
+}
+
+Function Get-HumiditySensors {
+    Get-FitleredSensorData $SensorTypes.Humidity
 }
