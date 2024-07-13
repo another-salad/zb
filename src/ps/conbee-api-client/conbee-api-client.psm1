@@ -4,7 +4,7 @@ Import-Module Microsoft.PowerShell.SecretStore
 
 $script:ConbeeVaultName = "ConbeeVault-Client"
 $script:DefaultConbeeApiSecretName = "ConbeeApiToken"
-$script:NodesToIgnoreXMLPath = "$PSScriptRoot/nodes-to-ignore.xml"
+$script:NodesToIgnoreXMLPath = "$($env:HOME)/nodes-to-ignore.xml"
 
 ## Secret vault fun
 # https://learn.microsoft.com/en-us/powershell/utility-modules/secretmanagement/get-started/using-secretstore?view=ps-modules
