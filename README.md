@@ -1,2 +1,3 @@
 # zb
-.Net Zigbee lets go
+A wrapper around the deCONZ REST-API for the Conbee Zigbee USB gateway
+Very Very WIP
