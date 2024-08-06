@@ -166,16 +166,28 @@ $SensorTypes = [pscustomobject]@{
 Function Get-FitleredSensorData {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory)]
+        [Parameter(ValueFromPipeline, Mandatory)]
         [string]$SensorType
     )
     Get-AllSensorsRaw | Set-SensorFilter | Where-Object { $_.type -eq $SensorType }
 }
 
+Function Update-ZHAStateValueToFloat {
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline, Mandatory)]
+        [PSObject[]]$Sensors
+    )
+    process {
+        $Sensors | ForEach-Object {$_.state.PSObject.Properties | ForEach-Object {if ($_.Name -in @("temperature", "humidity")) {$_.Value = [math]::round($_.Value / 100, 2)}}}
+        $Sensors
+    }
+}
+
 Function Get-TemperatureSensors {
-    Get-FitleredSensorData $SensorTypes.Temperature
+    $SensorTypes.Temperature | Get-FitleredSensorData | Update-ZHAStateValueToFloat
 }
 
 Function Get-HumiditySensors {
-    Get-FitleredSensorData $SensorTypes.Humidity
+    $SensorTypes.Humidity| Get-FitleredSensorData | Update-ZHAStateValueToFloat
 }
