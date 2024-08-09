@@ -4,7 +4,7 @@ Import-Module Microsoft.PowerShell.SecretStore
 
 $script:ConbeeVaultName = "ConbeeVault-Client"
 $script:DefaultConbeeApiSecretName = "ConbeeApiToken"
-$script:NodesToIgnoreXMLPath = "$($env:HOME)/nodes-to-ignore.xml"
+$script:SensorsToIgnoreXMLPath = "$($env:HOME)/SensorsToIgnore.clixml"
 
 ## Secret vault fun
 # https://learn.microsoft.com/en-us/powershell/utility-modules/secretmanagement/get-started/using-secretstore?view=ps-modules
@@ -100,31 +100,17 @@ Function New-ConbeeApiCall {
     Invoke-RestMethod @params
 }
 
-Function New-NodeToIgnoreXML {
-    [xml]$xml = “<nodes></nodes>”
-    $xml.Save($script:NodesToIgnoreXMLPath)
-}
-
-Function Update-NodeToIgnoreXML {
+Function Export-SensorsToIgnore {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensor
+        [object]$Sensors
     )
-    begin {
-        if (-not (Test-Path -Path $script:NodesToIgnoreXMLPath)) {
-            New-NodeToIgnoreXML
-        }
-        $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
-    }
-    process {
-        [xml]$nodeXml = [System.Management.Automation.PSSerializer]::Serialize(($Sensor | Select-Object name, uniqueid, manufacturername, modelid, etag))
-        $nodes = $xml.DocumentElement
-        $nodes.AppendChild($xml.ImportNode($nodeXml.Objs.obj, $true)) | out-null
-    }
-    end {
-        $xml.Save($script:NodesToIgnoreXMLPath)
-    }
+    $Sensors | Export-Clixml -Path $script:SensorsToIgnoreXMLPath -Force
+}
+
+Function Import-SensorsToIgnore {
+    Import-Clixml -Path $script:SensorsToIgnoreXMLPath
 }
 
 Function Format-ZBDevices {
@@ -145,11 +131,12 @@ Function Set-SensorFilter {
         [object]$Sensors
     )
     begin {
-        $xml = [xml](Get-Content $script:NodesToIgnoreXMLPath)
+        $SensorstoIgnore = Import-SensorsToIgnore
+        $IdsToIgnore = $SensorstoIgnore | get-member -MemberType NoteProperty | ForEach-Object {$SensorstoIgnore.($_.Name).UniqueID}
     }
     process {
-        # NOTE(Another-Salad): There must be a better way of doing the below, but this is all my brain can seemingly do right now...
-        $Sensors | Format-ZBDevices | Where-object { $_.uniqueid -notin $xml.Nodes.Obj.MS.S."#text" }
+        # NOTE(Another-Salad): There is still likely a better way of doing this but here we are.
+        $Sensors | Format-ZBDevices | Where-object {$_.uniqueid -notin $IdsToIgnore}
     }
 }
 
@@ -166,16 +153,28 @@ $SensorTypes = [pscustomobject]@{
 Function Get-FitleredSensorData {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory)]
+        [Parameter(ValueFromPipeline, Mandatory)]
         [string]$SensorType
     )
     Get-AllSensorsRaw | Set-SensorFilter | Where-Object { $_.type -eq $SensorType }
 }
 
+Function Update-ZHAStateValueToFloat {
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline, Mandatory)]
+        [PSObject[]]$Sensors
+    )
+    process {
+        $Sensors | ForEach-Object {$_.state.PSObject.Properties | ForEach-Object {if ($_.Name -in @("temperature", "humidity")) {$_.Value = [math]::round($_.Value / 100, 2)}}}
+        $Sensors
+    }
+}
+
 Function Get-TemperatureSensors {
-    Get-FitleredSensorData $SensorTypes.Temperature
+    $SensorTypes.Temperature | Get-FitleredSensorData | Update-ZHAStateValueToFloat
 }
 
 Function Get-HumiditySensors {
-    Get-FitleredSensorData $SensorTypes.Humidity
+    $SensorTypes.Humidity| Get-FitleredSensorData | Update-ZHAStateValueToFloat
 }
