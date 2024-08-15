@@ -12,7 +12,7 @@
 RootModule = 'conbee-api-client.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.1'
+ModuleVersion = '0.0.2'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -30,7 +30,7 @@ CompanyName = 'Unknown'
 Copyright = '(c) AnotherSalad. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'A wrapper around the Zigbee API from the ConBee II USB Gateway'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -119,7 +119,11 @@ PrivateData = @{
         # RequireLicenseAcceptance = $false
 
         # External dependent modules of this module
-        # ExternalModuleDependencies = @()
+        # NOTE(Another-Salad): This is purely a hack for my local posh repo.
+        ExternalModuleDependencies = @(
+            "Microsoft.PowerShell.SecretManagement",
+            "Microsoft.PowerShell.SecretStore"
+        )
 
     } # End of PSData hashtable
 

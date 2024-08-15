@@ -178,3 +178,6 @@ Function Get-TemperatureSensors {
 Function Get-HumiditySensors {
     $SensorTypes.Humidity| Get-FitleredSensorData | Update-ZHAStateValueToFloat
 }
+
+## TODO:
+# Rename sensors
