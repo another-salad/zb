@@ -126,8 +126,6 @@ Function Import-SensorsToIgnore {
     Import-Clixml -Path $script:SensorsToIgnoreXMLPath
 }
 
-
-# TODO: handle multiple objects at once?
 Filter Get-SensorsByUniqueID {
     [CmdletBinding()]
     param (
@@ -145,15 +143,22 @@ Function Add-SensorToIgnore {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensor
+        [object[]]$Sensors
     )
     begin {
         $sensorsToIgnoreObject = Import-SensorsToIgnore
         $nextVal = [int]($sensorsToIgnoreObject | Get-Member -MemberType NoteProperty | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1 -ExpandProperty Name) + 1
+        $NewExportRequired = $False
     }
     process {
-        if (-not [bool](Get-SensorsByUniqueID -Sensors $sensorsToIgnoreObject -SensorToCheck $Sensor)) {
-            $sensorsToIgnoreObject | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor
+        foreach ($Sensor in $Sensors) {
+            if (-not [bool](Get-SensorsByUniqueID -Sensors $sensorsToIgnoreObject -SensorToCheck $Sensor)) {
+                $sensorsToIgnoreObject | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor
+                $nextVal += 1
+                $NewExportRequired = $True
+            }
+        }
+        if ($NewExportRequired) {
             Export-SensorsToIgnore $sensorsToIgnoreObject | out-null
         }
         $sensorsToIgnoreObject
