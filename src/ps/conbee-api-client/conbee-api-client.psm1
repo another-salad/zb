@@ -63,7 +63,7 @@ Function New-ConbeeConfig {
     [ConbeeConfig]::new()
 }
 
-function New-ConbeeSession {
+Function New-ConbeeSession {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -71,6 +71,19 @@ function New-ConbeeSession {
     )
     $script:BaseUri = "$(if ($ConbeeConfig.Ssl) {'https'} else {'http'})://$($ConbeeConfig.Hostname)"
     $script:Token = if (-not $ConbeeConfig.Token) {Get-ApiTokenFromVault} else {$ConbeeConfig.Token}
+}
+
+Function New-ConbeeSessionUsingVault {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]$HostName
+    )
+    $conf = New-ConbeeConfig
+    $conf.Token = Get-ApiTokenFromVault
+    $conf.Hostname = $HostName
+    $conf | New-ConbeeSession
+    $conf
 }
 
 Function New-ConbeeApiCall {
@@ -113,6 +126,40 @@ Function Import-SensorsToIgnore {
     Import-Clixml -Path $script:SensorsToIgnoreXMLPath
 }
 
+
+# TODO: handle multiple objects at once?
+Filter Get-SensorsByUniqueID {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]$Sensors,
+        [Parameter(Mandatory)]
+        [object]$SensorToCheck
+    )
+    process {
+        $Sensors | get-member -MemberType NoteProperty | Where-Object { $Sensors.($_.Name).UniqueID -eq $SensorToCheck.UniqueID }
+    }
+}
+
+Function Add-SensorToIgnore {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$Sensor
+    )
+    begin {
+        $sensorsToIgnoreObject = Import-SensorsToIgnore
+        $nextVal = [int]($sensorsToIgnoreObject | Get-Member -MemberType NoteProperty | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1 -ExpandProperty Name) + 1
+    }
+    process {
+        if (-not [bool](Get-SensorsByUniqueID -Sensors $sensorsToIgnoreObject -SensorToCheck $Sensor)) {
+            $sensorsToIgnoreObject | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor
+            Export-SensorsToIgnore $sensorsToIgnoreObject | out-null
+        }
+        $sensorsToIgnoreObject
+    }
+}
+
 Function Format-ZBDevices {
     [CmdletBinding()]
     param (
@@ -124,7 +171,7 @@ Function Format-ZBDevices {
     }
 }
 
-Function Set-SensorFilter {
+Filter Set-SensorFilter {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -132,7 +179,7 @@ Function Set-SensorFilter {
     )
     begin {
         $SensorstoIgnore = Import-SensorsToIgnore
-        $IdsToIgnore = $SensorstoIgnore | get-member -MemberType NoteProperty | ForEach-Object {$SensorstoIgnore.($_.Name).UniqueID}
+        $IdsToIgnore = $SensorstoIgnore | get-member -MemberType NoteProperty | ForEach-Object {$SensorstoIgnore.($_.Name).UniqueID}  # Note, think about filter Get-SensorsByUniqueID
     }
     process {
         # NOTE(Another-Salad): There is still likely a better way of doing this but here we are.
@@ -181,3 +228,4 @@ Function Get-HumiditySensors {
 
 ## TODO:
 # Rename sensors
+# Add/Remove sensors from ignore list
