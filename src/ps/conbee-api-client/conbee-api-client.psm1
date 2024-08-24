@@ -283,4 +283,3 @@ Function Get-HumiditySensors {
 
 ## TODO:
 # Rename sensors
-# Add/Remove sensors from ignore list
