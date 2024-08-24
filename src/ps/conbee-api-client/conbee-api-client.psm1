@@ -126,6 +126,17 @@ Function Import-SensorsToIgnore {
     Import-Clixml -Path $script:SensorsToIgnoreXMLPath
 }
 
+Function Get-SensorsFromProperties {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$Sensors
+    )
+    process {
+        $Sensors | Get-Member -MemberType NoteProperty
+    }
+}
+
 Filter Get-SensorsByUniqueID {
     [CmdletBinding()]
     param (
@@ -135,7 +146,7 @@ Filter Get-SensorsByUniqueID {
         [object]$SensorToCheck
     )
     process {
-        $Sensors | get-member -MemberType NoteProperty | Where-Object { $Sensors.($_.Name).UniqueID -eq $SensorToCheck.UniqueID }
+        $Sensors | Get-SensorsFromProperties | Where-Object { $Sensors.($_.Name).UniqueID -eq $SensorToCheck.UniqueID }
     }
 }
 
@@ -151,7 +162,7 @@ Filter Remove-SensorsByUniqueID {
         $NewSensorObject = [PSCustomObject]@{}
     }
     process {
-        $Sensors | get-member -MemberType NoteProperty | Where-Object { $Sensors.($_.Name).UniqueID -ne $SensorToFilter.UniqueID } | ForEach-Object { $NewSensorObject |Add-Member -Type NoteProperty -Name $_.Name -Value $sensors.($_.Name) }
+        $Sensors | Get-SensorsFromProperties | Where-Object { $Sensors.($_.Name).UniqueID -ne $SensorToFilter.UniqueID } | ForEach-Object { $NewSensorObject |Add-Member -Type NoteProperty -Name $_.Name -Value $sensors.($_.Name) }
         $NewSensorObject
     }
 }
@@ -164,7 +175,7 @@ Function Add-SensorToIgnore {
     )
     begin {
         $sensorsToIgnoreObject = Import-SensorsToIgnore
-        $nextVal = [int]($sensorsToIgnoreObject | Get-Member -MemberType NoteProperty | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1 -ExpandProperty Name) + 1
+        $nextVal = [int]($sensorsToIgnoreObject | Get-SensorsFromProperties | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1 -ExpandProperty Name) + 1
         $NewExportRequired = $False
     }
     process {
@@ -211,7 +222,7 @@ Function Format-ZBDevices {
         [object]$ZBDevices
     )
     process {
-        $ZBDevices | get-member -MemberType NoteProperty | ForEach-Object { $ZBDevices.($_.Name) }
+        $ZBDevices | Get-SensorsFromProperties | ForEach-Object { $ZBDevices.($_.Name) }
     }
 }
 
@@ -223,7 +234,7 @@ Filter Set-SensorFilter {
     )
     begin {
         $SensorstoIgnore = Import-SensorsToIgnore
-        $IdsToIgnore = $SensorstoIgnore | get-member -MemberType NoteProperty | ForEach-Object {$SensorstoIgnore.($_.Name).UniqueID}  # Note, think about filter Get-SensorsByUniqueID
+        $IdsToIgnore = $SensorstoIgnore | Get-SensorsFromProperties | ForEach-Object {$SensorstoIgnore.($_.Name).UniqueID}  # Note, think about filter Get-SensorsByUniqueID
     }
     process {
         # NOTE(Another-Salad): There is still likely a better way of doing this but here we are.
