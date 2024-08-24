@@ -139,6 +139,23 @@ Filter Get-SensorsByUniqueID {
     }
 }
 
+Filter Remove-SensorsByUniqueID {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]$Sensors,
+        [Parameter(Mandatory)]
+        [object]$SensorToFilter
+    )
+    begin {
+        $NewSensorObject = [PSCustomObject]@{}
+    }
+    process {
+        $Sensors | get-member -MemberType NoteProperty | Where-Object { $Sensors.($_.Name).UniqueID -ne $SensorToFilter.UniqueID } | ForEach-Object { $NewSensorObject |Add-Member -Type NoteProperty -Name $_.Name -Value $sensors.($_.Name) }
+        $NewSensorObject
+    }
+}
+
 Function Add-SensorToIgnore {
     [CmdletBinding()]
     param (
@@ -153,14 +170,36 @@ Function Add-SensorToIgnore {
     process {
         foreach ($Sensor in $Sensors) {
             if (-not [bool](Get-SensorsByUniqueID -Sensors $sensorsToIgnoreObject -SensorToCheck $Sensor)) {
-                $sensorsToIgnoreObject | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor
+                $sensorsToIgnoreObject | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor | out-null
                 $nextVal += 1
                 $NewExportRequired = $True
             }
         }
+    }
+    end {
         if ($NewExportRequired) {
             Export-SensorsToIgnore $sensorsToIgnoreObject | out-null
         }
+        $sensorsToIgnoreObject
+    }
+}
+
+Function Remove-SensorFromIgnore {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object[]]$Sensors
+    )
+    begin {
+        $sensorsToIgnoreObject = Import-SensorsToIgnore
+    }
+    process {
+        foreach ($Sensor in $Sensors) {
+            $sensorsToIgnoreObject = Remove-SensorsByUniqueID $sensorsToIgnoreObject $Sensor
+        }
+    }
+    end {
+        Export-SensorsToIgnore $sensorsToIgnoreObject | out-null
         $sensorsToIgnoreObject
     }
 }
