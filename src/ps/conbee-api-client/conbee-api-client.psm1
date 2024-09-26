@@ -144,7 +144,7 @@ Function Add-ApiIdToSensors {
     )
     process {
         foreach ($sensor in $Sensors.PSObject.Properties) {
-            $sensor.Value| Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
+            $sensor.Value | Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
         }
         $Sensors
     }
