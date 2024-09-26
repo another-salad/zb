@@ -100,15 +100,14 @@ Function New-ConbeeApiCall {
         Method = $method
         Headers = @{Accept = "application/json"}
     }
-    # TODO: TEST OUT THE BELOW
-    # if ($data) {
-    #     # Strip out any empty strings or null values from the data object before converting and sending to the API.
-    #     $x = [PSCustomObject]@{}
-    #     $data.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne "" } | ForEach-Object { $x | Add-Member -Type NoteProperty -Name $_.Name -Value $_.Value }
-    #     $jsonData = $x | ConvertTo-Json
-    #     $params.Add("Body", $jsonData)
-    #     $params.Headers.Add("Content-Type", "application/json")
-    # }
+    if ($data) {
+        # Strip out any empty strings or null values from the data object before converting and sending to the API.
+        $x = [PSCustomObject]@{}
+        $data.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne "" } | ForEach-Object { $x | Add-Member -Type NoteProperty -Name $_.Name -Value $_.Value }
+        $jsonData = $x | ConvertTo-Json
+        $params.Add("Body", $jsonData)
+        $params.Headers.Add("Content-Type", "application/json")
+    }
 
     Invoke-RestMethod @params
 }
@@ -134,6 +133,20 @@ Function Get-SensorsFromProperties {
     )
     process {
         $Sensors | Get-Member -MemberType NoteProperty
+    }
+}
+
+Function Add-ApiIdToSensors {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$Sensors
+    )
+    process {
+        foreach ($sensor in $Sensors.PSObject.Properties) {
+            $sensor.Value | Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
+        }
+        $Sensors
     }
 }
 
@@ -244,7 +257,8 @@ Filter Set-SensorFilter {
 
 # Get-AllSensorsRaw | Set-SensorFilter
 Function Get-AllSensorsRaw {
-    New-ConbeeApiCall -Method GET -Endpoint "sensors"
+    # Ok, this isn't really _raw_ anymore. I'm adding the ID of the sensor to its returned data for an easy life.
+    New-ConbeeApiCall -Method GET -Endpoint "sensors" | Add-ApiIdToSensors
 }
 
 $SensorTypes = [pscustomobject]@{
@@ -281,5 +295,14 @@ Function Get-HumiditySensors {
     $SensorTypes.Humidity| Get-FitleredSensorData | Update-ZHAStateValueToFloat
 }
 
-## TODO:
-# Rename sensors
+Function Rename-Sensor {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSObject]$Sensor,
+        [Parameter(Mandatory)]
+        [string]$NewName
+    )
+    # name has to be lower case as the API is case sensitive, fantastic.
+    New-ConbeeApiCall -Method PUT -Endpoint "sensors/$($Sensor.ApiId)" -Data ([PSCustomObject]@{name = $NewName})
+}
