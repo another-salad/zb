@@ -1,7 +1,3 @@
-# Third party MS
-Import-Module Microsoft.PowerShell.SecretManagement
-Import-Module Microsoft.PowerShell.SecretStore
-
 $script:ConbeeVaultName = "ConbeeVault-Client"
 $script:DefaultConbeeApiSecretName = "ConbeeApiToken"
 $script:SensorsToIgnoreXMLPath = "$($env:HOME)/SensorsToIgnore.clixml"
@@ -9,7 +5,7 @@ $script:SensorsToIgnoreXMLPath = "$($env:HOME)/SensorsToIgnore.clixml"
 ## Secret vault fun
 # https://learn.microsoft.com/en-us/powershell/utility-modules/secretmanagement/get-started/using-secretstore?view=ps-modules
 
-## Vault functions start
+#region SecretVaultFunctions
 Function Set-NonInteractiveConbeeVault {
     [CmdletBinding()]
     param (
@@ -51,8 +47,9 @@ Function Get-ApiTokenFromVault {
     )
     Get-Secret -Name $secretName -Vault $vaultName
 }
-## Vault functions End
+#endregion
 
+#region ConbeeSession
 class ConbeeConfig {
     [string]$Hostname = "127.0.0.1"
     [securestring]$Token
@@ -85,7 +82,9 @@ Function New-ConbeeSessionUsingVault {
     $conf | New-ConbeeSession
     $conf
 }
+#endregion
 
+#region CoreApiWrappers
 Function New-ConbeeApiCall {
     [CmdletBinding()]
     param(
@@ -112,6 +111,28 @@ Function New-ConbeeApiCall {
     Invoke-RestMethod @params
 }
 
+Function Add-ApiIdToSensors {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$Sensors
+    )
+    process {
+        foreach ($sensor in $Sensors.PSObject.Properties) {
+            $sensor.Value | Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
+        }
+        $Sensors
+    }
+}
+#endregion
+
+#region ConbeeConfig
+Function Get-ConbeeConfig {
+    New-ConbeeApiCall -Method GET -Endpoint "config"
+}
+#endregion
+
+#region SensorManagement
 Function Export-SensorsToIgnore {
     [CmdletBinding()]
     param (
@@ -133,50 +154,6 @@ Function Get-SensorsFromProperties {
     )
     process {
         $Sensors | Get-Member -MemberType NoteProperty
-    }
-}
-
-Function Add-ApiIdToSensors {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensors
-    )
-    process {
-        foreach ($sensor in $Sensors.PSObject.Properties) {
-            $sensor.Value | Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
-        }
-        $Sensors
-    }
-}
-
-Filter Get-SensorsByUniqueID {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory)]
-        [object]$Sensors,
-        [Parameter(Mandatory)]
-        [object]$SensorToCheck
-    )
-    process {
-        $Sensors | Get-SensorsFromProperties | Where-Object { $Sensors.($_.Name).UniqueID -eq $SensorToCheck.UniqueID }
-    }
-}
-
-Filter Remove-SensorsByUniqueID {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory)]
-        [object]$Sensors,
-        [Parameter(Mandatory)]
-        [object]$SensorToFilter
-    )
-    begin {
-        $NewSensorObject = [PSCustomObject]@{}
-    }
-    process {
-        $Sensors | Get-SensorsFromProperties | Where-Object { $Sensors.($_.Name).UniqueID -ne $SensorToFilter.UniqueID } | ForEach-Object { $NewSensorObject |Add-Member -Type NoteProperty -Name $_.Name -Value $sensors.($_.Name) }
-        $NewSensorObject
     }
 }
 
@@ -227,6 +204,38 @@ Function Remove-SensorFromIgnore {
         $sensorsToIgnoreObject
     }
 }
+#endregion
+
+#region Filters/Formatters
+Filter Get-SensorsByUniqueID {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]$Sensors,
+        [Parameter(Mandatory)]
+        [object]$SensorToCheck
+    )
+    process {
+        $Sensors | Get-SensorsFromProperties | Where-Object { $Sensors.($_.Name).UniqueID -eq $SensorToCheck.UniqueID }
+    }
+}
+
+Filter Remove-SensorsByUniqueID {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]$Sensors,
+        [Parameter(Mandatory)]
+        [object]$SensorToFilter
+    )
+    begin {
+        $NewSensorObject = [PSCustomObject]@{}
+    }
+    process {
+        $Sensors | Get-SensorsFromProperties | Where-Object { $Sensors.($_.Name).UniqueID -ne $SensorToFilter.UniqueID } | ForEach-Object { $NewSensorObject |Add-Member -Type NoteProperty -Name $_.Name -Value $sensors.($_.Name) }
+        $NewSensorObject
+    }
+}
 
 Function Format-ZBDevices {
     [CmdletBinding()]
@@ -254,16 +263,19 @@ Filter Set-SensorFilter {
         $Sensors | Format-ZBDevices | Where-object {$_.uniqueid -notin $IdsToIgnore}
     }
 }
+#endregion
+
+#region SensorFunctions
+$SensorTypes = [pscustomobject]@{
+    Humidity = "ZHAHumidity"
+    Temperature = "ZHATemperature"
+    Presence = "ZHAPresence"
+}
 
 # Get-AllSensorsRaw | Set-SensorFilter
 Function Get-AllSensorsRaw {
     # Ok, this isn't really _raw_ anymore. I'm adding the ID of the sensor to its returned data for an easy life.
     New-ConbeeApiCall -Method GET -Endpoint "sensors" | Add-ApiIdToSensors
-}
-
-$SensorTypes = [pscustomobject]@{
-    Humidity = "ZHAHumidity"
-    Temperature = "ZHATemperature"
 }
 
 Function Get-FitleredSensorData {
@@ -295,6 +307,10 @@ Function Get-HumiditySensors {
     $SensorTypes.Humidity| Get-FitleredSensorData | Update-ZHAStateValueToFloat
 }
 
+Function Get-PresenceSensors {
+    $SensorTypes.Presence | Get-FitleredSensorData
+}
+
 Function Rename-Sensor {
     [CmdletBinding()]
     param(
@@ -306,3 +322,4 @@ Function Rename-Sensor {
     # name has to be lower case as the API is case sensitive, fantastic.
     New-ConbeeApiCall -Method PUT -Endpoint "sensors/$($Sensor.ApiId)" -Data ([PSCustomObject]@{name = $NewName})
 }
+#endregion
