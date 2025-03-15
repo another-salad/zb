@@ -92,7 +92,7 @@ Function New-ConbeeApiCall {
         [string]$Method,
         [Parameter(Mandatory)]
         [string]$Endpoint,
-        [PSCustomObject]$Data
+        [hashtable]$Data
     )
     $params = @{
         Uri = "$($script:BaseUri)/api/$($script:Token | ConvertFrom-SecureString -AsPlainText)/$endpoint/"
@@ -100,11 +100,7 @@ Function New-ConbeeApiCall {
         Headers = @{Accept = "application/json"}
     }
     if ($data) {
-        # Strip out any empty strings or null values from the data object before converting and sending to the API.
-        $x = [PSCustomObject]@{}
-        $data.PSObject.Properties | Where-Object { $null -ne $_.Value -and $_.Value -ne "" } | ForEach-Object { $x | Add-Member -Type NoteProperty -Name $_.Name -Value $_.Value }
-        $jsonData = $x | ConvertTo-Json
-        $params.Add("Body", $jsonData)
+        $params.Add("Body", ($Data | ConvertTo-Json))
         $params.Headers.Add("Content-Type", "application/json")
     }
 
@@ -270,6 +266,8 @@ $SensorTypes = [pscustomobject]@{
     Humidity = "ZHAHumidity"
     Temperature = "ZHATemperature"
     Presence = "ZHAPresence"
+    Power = "ZHAPower"
+    Consumption = "ZHAConsumption"
 }
 
 # Get-AllSensorsRaw | Set-SensorFilter
@@ -311,6 +309,14 @@ Function Get-PresenceSensors {
     $SensorTypes.Presence | Get-FitleredSensorData
 }
 
+Function Get-PowerSensors {
+    $SensorTypes.Power | Get-FitleredSensorData
+}
+
+Function Get-ConsumptionSensors {
+    $SensorTypes.Consumption | Get-FitleredSensorData
+}
+
 Function Rename-Sensor {
     [CmdletBinding()]
     param(
@@ -320,6 +326,46 @@ Function Rename-Sensor {
         [string]$NewName
     )
     # name has to be lower case as the API is case sensitive, fantastic.
-    New-ConbeeApiCall -Method PUT -Endpoint "sensors/$($Sensor.ApiId)" -Data ([PSCustomObject]@{name = $NewName})
+    New-ConbeeApiCall -Method PUT -Endpoint "sensors/$($Sensor.ApiId)" -Data @{name = $NewName}
+}
+#endregion
+
+#region Groups
+# You'll see interactions with groups which can combine many lights, plugs, etc into single entities.
+# Plugs are a little interesting in the DeConz API as you cannot (at the time of writing March 2025)
+# control their state (on/off) directly. However, if they are put into a group (can be a group of one)
+# then you can. I foresee many interactions with single plugs abstracted via groups.
+
+class GroupState {
+    [pscustomobject]$Group
+    [hashtable]$State
+}
+
+Function New-GroupState {
+    [GroupState]::new()
+}
+Function Get-AllGroups {
+    New-ConbeeApiCall -Method GET -Endpoint "groups"
+}
+
+Function Get-GroupByName {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+    Get-AllGroups | ForEach-Object {$_.PSObject.Properties | Where-Object {$_.Value.Name -match $Name}}
+}
+
+Function Set-GroupState {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [GroupState[]]$GroupState
+    )
+    process {
+        # Name == id in the DeConz API here. This is due to each noteproperty being the API ID of the group. 
+        New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.Name)/action" -Data $GroupState.State
+    }
 }
 #endregion
