@@ -344,6 +344,7 @@ class GroupState {
 Function New-GroupState {
     [GroupState]::new()
 }
+
 Function Get-AllGroups {
     New-ConbeeApiCall -Method GET -Endpoint "groups"
 }
@@ -357,6 +358,10 @@ Function Get-GroupByName {
     Get-AllGroups | ForEach-Object {$_.PSObject.Properties | Where-Object {$_.Value.Name -match $Name}}
 }
 
+# $conf = New-GroupState 
+# $conf.Group = Get-GroupByName -Name "Living Room"
+# $conf.state = @{on=$True}
+# $conf | Set-GroupState 
 Function Set-GroupState {
     [CmdletBinding()]
     param (
@@ -368,4 +373,22 @@ Function Set-GroupState {
         New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.Name)/action" -Data $GroupState.State
     }
 }
+
+# Get-GroupByName -Name "Living Room" | Set-GroupPowerState -off
+Function Set-GroupPowerState {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [PSObject[]]$Group,
+        [switch]$off
+    )
+    begin {
+        $conf = New-GroupState
+        $conf.State = @{on = ($True -ne $off)}
+    }
+    process {
+        $Group | ForEach-Object { $conf.Group = $_ ; $conf | Set-GroupState }
+    }
+}
+
 #endregion
