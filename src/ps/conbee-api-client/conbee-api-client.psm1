@@ -1,6 +1,7 @@
 $script:ConbeeVaultName = "ConbeeVault-Client"
 $script:DefaultConbeeApiSecretName = "ConbeeApiToken"
 $script:SensorsToIgnoreXMLPath = "$($env:HOME)/SensorsToIgnore.clixml"
+$script:TriggerSensorsXMLPath = "$($env:HOME)/TriggerSensors.clixml"
 
 ## Secret vault fun
 # https://learn.microsoft.com/en-us/powershell/utility-modules/secretmanagement/get-started/using-secretstore?view=ps-modules
@@ -139,7 +140,20 @@ Function Export-SensorsToIgnore {
 }
 
 Function Import-SensorsToIgnore {
-    Import-Clixml -Path $script:SensorsToIgnoreXMLPath
+    Import-Clixml -Path $script:SensorsToIgnoreXMLPath -ErrorAction SilentlyContinue
+}
+
+Function Import-TriggerSensors {
+    Import-Clixml -Path $script:TriggerSensorsXMLPath -ErrorAction SilentlyContinue
+}
+
+Function Export-TriggerSensors {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$Sensors
+    )
+    $Sensors | Export-Clixml -Path $script:TriggerSensorsXMLPath -Force
 }
 
 Function Get-SensorsFromProperties {
@@ -153,31 +167,69 @@ Function Get-SensorsFromProperties {
     }
 }
 
+Function Add-SensorToClixml {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object[]]$Sensors,
+        [PSCustomObject]$SensorXml
+    )
+    begin {
+        if ($SensorXml -eq $null) {
+            $SensorXml = [PSCustomObject]@{}
+        }
+        $nextVal = [int]($SensorXml | Get-SensorsFromProperties | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1 -ExpandProperty Name) + 1
+    }
+    process {
+        foreach ($Sensor in $Sensors) {
+            if (-not [bool](Get-SensorsByUniqueID -Sensors $SensorXml -SensorToCheck $Sensor)) {
+                $SensorXml | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor | out-null
+                $nextVal += 1
+            }
+        }
+    }
+    end {
+        $SensorXml
+    }
+
+}
+
 Function Add-SensorToIgnore {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [object[]]$Sensors
     )
-    begin {
-        $sensorsToIgnoreObject = Import-SensorsToIgnore
-        $nextVal = [int]($sensorsToIgnoreObject | Get-SensorsFromProperties | Sort-Object { [int]$_.Name } -Descending | Select-Object -First 1 -ExpandProperty Name) + 1
-        $NewExportRequired = $False
+    process {
+        $sensors | Add-SensorToClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
     }
+}
+
+Function Add-SensorToTriggers {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object[]]$Sensors
+    )
+    process {
+        $sensors | Add-SensorToClixml -SensorXml (Import-TriggerSensors) | Export-TriggerSensors
+    }
+}
+
+Function Remove-SensorFromClixml {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object[]]$Sensors,
+        [PSCustomObject]$SensorXml
+    )
     process {
         foreach ($Sensor in $Sensors) {
-            if (-not [bool](Get-SensorsByUniqueID -Sensors $sensorsToIgnoreObject -SensorToCheck $Sensor)) {
-                $sensorsToIgnoreObject | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor | out-null
-                $nextVal += 1
-                $NewExportRequired = $True
-            }
+            $SensorXml = Remove-SensorsByUniqueID $SensorXml $Sensor
         }
     }
     end {
-        if ($NewExportRequired) {
-            Export-SensorsToIgnore $sensorsToIgnoreObject | out-null
-        }
-        $sensorsToIgnoreObject
+        $SensorXml
     }
 }
 
@@ -187,17 +239,19 @@ Function Remove-SensorFromIgnore {
         [Parameter(Mandatory, ValueFromPipeline)]
         [object[]]$Sensors
     )
-    begin {
-        $sensorsToIgnoreObject = Import-SensorsToIgnore
-    }
     process {
-        foreach ($Sensor in $Sensors) {
-            $sensorsToIgnoreObject = Remove-SensorsByUniqueID $sensorsToIgnoreObject $Sensor
-        }
+        $sensors | Remove-SensorFromClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
     }
-    end {
-        Export-SensorsToIgnore $sensorsToIgnoreObject | out-null
-        $sensorsToIgnoreObject
+}
+
+Function Remove-SensorFromTriggers {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object[]]$Sensors
+    )
+    process {
+        $sensors | Remove-SensorFromClixml -SensorXml (Import-TriggerSensors) | Export-TriggerSensors
     }
 }
 #endregion
@@ -392,3 +446,18 @@ Function Set-GroupPowerState {
 }
 
 #endregion
+#region Events
+
+$script:ConbeeMessageEvent = "ConbeeMessageEvent"
+$script:ConbeeEventSensorPrefix = "ConbeeSensor:"
+
+class ConbeeEventConfig {
+    [string]$EventName
+    [PSObject]$TriggerSensor
+    [PSObject]$TriggerGroup
+    [hashtable]$triggerState
+}
+
+Function New-EventTrigger {
+
+}
