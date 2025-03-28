@@ -8,7 +8,7 @@ param(
 import-module conbee-api-client -MinimumVersion 0.0.6
 
 Add-Type -AssemblyName System.Net.WebSockets.Client
-New-ConbeeSessionUsingVault -hostname $Hostname
+New-ConbeeSessionUsingVault -hostname $Hostname | out-null
 $ws = New-WsConnection
 $triggerSensors = Import-TriggerSensors
 try {
