@@ -67,6 +67,7 @@ Function New-ConbeeSession {
         [Parameter(Mandatory, ValueFromPipeline)]
         [ConbeeConfig]$ConbeeConfig
     )
+    $script:ConbeeHostName = $ConbeeConfig.Hostname
     $script:BaseUri = "$(if ($ConbeeConfig.Ssl) {'https'} else {'http'})://$($ConbeeConfig.Hostname)"
     $script:Token = if (-not $ConbeeConfig.Token) {Get-ApiTokenFromVault} else {$ConbeeConfig.Token}
 }
@@ -167,6 +168,18 @@ Function Get-SensorsFromProperties {
     }
 }
 
+Function Add-TriggerGroupToSensor {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]$Sensor,
+        [Parameter(Mandatory)]
+        [string]$GroupName
+    )
+    $Sensor | Add-Member -Type NoteProperty -Name TriggerGroup -Value $GroupName
+    $Sensor
+}
+
 Function Add-SensorToClixml {
     [CmdletBinding()]
     param(
@@ -212,7 +225,12 @@ Function Add-SensorToTriggers {
         [object[]]$Sensors
     )
     process {
-        $sensors | Add-SensorToClixml -SensorXml (Import-TriggerSensors) | Export-TriggerSensors
+        $sensors | ForEach-Object {
+            if (-not $_.TriggerGroup) {
+                Write-Warning "Add TriggerGroup to: $_ via Add-TriggerGroupToSensor"; return
+            }
+            $_ | Add-SensorToClixml -SensorXml (Import-TriggerSensors) | Export-TriggerSensors
+        }
     }
 }
 
@@ -446,18 +464,45 @@ Function Set-GroupPowerState {
 }
 
 #endregion
-#region Events
-
-$script:ConbeeMessageEvent = "ConbeeMessageEvent"
-$script:ConbeeEventSensorPrefix = "ConbeeSensor:"
-
-class ConbeeEventConfig {
-    [string]$EventName
-    [PSObject]$TriggerSensor
-    [PSObject]$TriggerGroup
-    [hashtable]$triggerState
+#region WebSocket helpers
+Function New-WsConnection {
+    [CmdletBinding()]
+    param(
+        # Conbee API defaults to port 443 for ws connections, but can be configured to a different port.
+        [int]$Port = 443
+    )
+    Add-Type -AssemblyName System.Net.WebSockets.Client
+    $uri = "ws://$($script:ConbeeHostName):$Port"
+    $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+    $ws.ConnectAsync([Uri]$uri, [Threading.CancellationToken]::None).Wait()
+    $ws
 }
 
-Function New-EventTrigger {
-
+Function Close-WsConnection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [System.Net.WebSockets.ClientWebSocket]$ws
+    )
+    process {
+        $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", [Threading.CancellationToken]::None).Wait()
+        $ws.Dispose()
+    }
 }
+
+Function Receive-WsData {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [System.Net.WebSockets.ClientWebSocket]$ws
+    )
+    begin {
+        $Buffer = [byte[]]::new(1024)
+    }
+    process {
+        $segment = [System.ArraySegment[byte]]::new($buffer)
+        $result = $ws.ReceiveAsync($segment, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+        [System.Text.Encoding]::UTF8.GetString($Buffer, 0, $result.Count) | ConvertFrom-Json
+    }
+}
+#endregion
