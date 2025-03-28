@@ -340,6 +340,8 @@ $SensorTypes = [pscustomobject]@{
     Presence = "ZHAPresence"
     Power = "ZHAPower"
     Consumption = "ZHAConsumption"
+    LightLevel = "ZHALightLevel"
+    Daylight = "Daylight"
 }
 
 # Get-AllSensorsRaw | Set-SensorFilter
@@ -389,6 +391,24 @@ Function Get-ConsumptionSensors {
     $SensorTypes.Consumption | Get-FitleredSensorData
 }
 
+Function Get-LightLevelSensors {
+    $SensorTypes.LightLevel | Get-FitleredSensorData
+}
+
+Function Get-DaylightSensors {
+    # If you are like me, you have likely ignored the default daylight sensor in the DeConz API.
+    # I found this to mostly be noise, until now ofc.
+    [CmdletBinding()]
+    param(
+        [switch]$IgnoreFilter
+    )
+    if ($IgnoreFilter) {
+        Get-AllSensorsRaw | Format-ZBDevices | Where-Object { $_.type -eq $SensorTypes.Daylight }
+    } else {
+        $SensorTypes.Daylight | Get-FitleredSensorData
+    }
+}
+
 Function Rename-Sensor {
     [CmdletBinding()]
     param(
@@ -399,6 +419,20 @@ Function Rename-Sensor {
     )
     # name has to be lower case as the API is case sensitive, fantastic.
     New-ConbeeApiCall -Method PUT -Endpoint "sensors/$($Sensor.ApiId)" -Data @{name = $NewName}
+}
+
+# Get-LightLevelSensors | Update-SensorConfig -Config @{tholddark = 10000}  # Default is 12000
+Function Update-SensorConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory,ValueFromPipeline)]
+        [PSObject]$Sensor,
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+    process {
+        New-ConbeeApiCall -Method PUT -Endpoint "sensors/$($Sensor.ApiId)/config" -Data $Config
+    }
 }
 #endregion
 
