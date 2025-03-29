@@ -50,6 +50,21 @@ Function Get-ApiTokenFromVault {
 }
 #endregion
 
+#region Generic Functions
+Function ConvertTo-FlatObject {
+    # I must admit, I hate approved verbs.
+    # In short, this returns all the property values within the parent PsCustomObject.
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        $PsObj
+    )
+    process {
+        $PsObj | ForEach-Object { $r = $_.PSObject.Properties.Value; $r}
+    }
+}
+#endregion
+
 #region ConbeeSession
 class ConbeeConfig {
     [string]$Hostname = "127.0.0.1"
@@ -113,7 +128,7 @@ Function Add-ApiIdToSensors {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensors
+        [PSCustomObject]$Sensors
     )
     process {
         foreach ($sensor in $Sensors.PSObject.Properties) {
@@ -135,7 +150,7 @@ Function Export-SensorsToIgnore {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensors
+        [PSCustomObject]$Sensors
     )
     $Sensors | Export-Clixml -Path $script:SensorsToIgnoreXMLPath -Force
 }
@@ -152,7 +167,7 @@ Function Export-TriggerSensors {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensors
+        [PSCustomObject]$Sensors
     )
     $Sensors | Export-Clixml -Path $script:TriggerSensorsXMLPath -Force
 }
@@ -161,30 +176,44 @@ Function Get-SensorsFromProperties {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensors
+        [PSCustomObject]$Sensors
     )
     process {
         $Sensors | Get-Member -MemberType NoteProperty
     }
 }
 
-Function Add-TriggerGroupToSensor {
+Function New-SensorTriggerConfig {
+    [pscustomobject]@{
+        TriggerGroup = $null
+        IgnoreDaylight = $false
+    }
+}
+
+Function Add-TriggerConfigToSensors {
     [CmdletBinding()]
     param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [PSCustomObject]$Sensors,
         [Parameter(Mandatory)]
-        [object]$Sensor,
-        [Parameter(Mandatory)]
-        [string]$GroupName
+        [pscustomobject]$TriggerConfig
     )
-    $Sensor | Add-Member -Type NoteProperty -Name TriggerGroup -Value $GroupName
-    $Sensor
+    process {
+        $Sensors | ForEach-Object {
+            $sensor = $_
+            $TriggerConfig.PSObject.Properties | ForEach-Object {
+                $sensor | Add-Member -Type NoteProperty -Name $_.Name -Value $_.Value -Force
+            }
+            $sensor
+        }
+    }
 }
 
 Function Add-SensorToClixml {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object[]]$Sensors,
+        [PSCustomObject]$Sensors,
         [PSCustomObject]$SensorXml
     )
     begin {
@@ -211,10 +240,10 @@ Function Add-SensorToIgnore {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object[]]$Sensors
+        [PSCustomObject]$Sensors
     )
     process {
-        $sensors | Add-SensorToClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
+        $sensors | ConvertTo-FlatObject | Add-SensorToClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
     }
 }
 
@@ -222,10 +251,10 @@ Function Add-SensorToTriggers {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object[]]$Sensors
+        [PSCustomObject]$Sensors
     )
     process {
-        $sensors | ForEach-Object {
+        $Sensors | ConvertTo-FlatObject | ForEach-Object {
             if (-not $_.TriggerGroup) {
                 Write-Warning "Add TriggerGroup to: $_ via Add-TriggerGroupToSensor"; return
             }
@@ -238,13 +267,11 @@ Function Remove-SensorFromClixml {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object[]]$Sensors,
+        [PSCustomObject]$Sensors,
         [PSCustomObject]$SensorXml
     )
     process {
-        foreach ($Sensor in $Sensors) {
-            $SensorXml = Remove-SensorsByUniqueID $SensorXml $Sensor
-        }
+        $sensors | ConvertTo-FlatObject | Foreach-Object {$SensorXml = Remove-SensorsByUniqueID $SensorXml $_}
     }
     end {
         $SensorXml
@@ -255,7 +282,7 @@ Function Remove-SensorFromIgnore {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object[]]$Sensors
+        [PSCustomObject]$Sensors
     )
     process {
         $sensors | Remove-SensorFromClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
@@ -266,7 +293,7 @@ Function Remove-SensorFromTriggers {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object[]]$Sensors
+        [PSCustomObject]$Sensors
     )
     process {
         $sensors | Remove-SensorFromClixml -SensorXml (Import-TriggerSensors) | Export-TriggerSensors
@@ -279,9 +306,9 @@ Filter Get-SensorsByUniqueID {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
-        [object]$Sensors,
+        [PSCustomObject]$Sensors,
         [Parameter(Mandatory)]
-        [object]$SensorToCheck
+        [PSCustomObject]$SensorToCheck
     )
     process {
         $Sensors | Get-SensorsFromProperties | Where-Object { $Sensors.($_.Name).UniqueID -eq $SensorToCheck.UniqueID }
@@ -292,9 +319,9 @@ Filter Remove-SensorsByUniqueID {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
-        [object]$Sensors,
+        [PSCustomObject]$Sensors,
         [Parameter(Mandatory)]
-        [object]$SensorToFilter
+        [PSCustomObject]$SensorToFilter
     )
     begin {
         $NewSensorObject = [PSCustomObject]@{}
@@ -309,7 +336,7 @@ Function Format-ZBDevices {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$ZBDevices
+        [PSCustomObject]$ZBDevices
     )
     process {
         $ZBDevices | Get-SensorsFromProperties | ForEach-Object { $ZBDevices.($_.Name) }
@@ -320,7 +347,7 @@ Filter Set-SensorFilter {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [object]$Sensors
+        [PSCustomObject]$Sensors
     )
     begin {
         $SensorstoIgnore = Import-SensorsToIgnore
@@ -363,7 +390,7 @@ Function Update-ZHAStateValueToFloat {
     [CmdletBinding()]
     param(
         [Parameter(ValueFromPipeline, Mandatory)]
-        [PSObject[]]$Sensors
+        [PSCustomObject]$Sensors
     )
     process {
         $Sensors | ForEach-Object {$_.state.PSObject.Properties | ForEach-Object {if ($_.Name -in @("temperature", "humidity")) {$_.Value = [math]::round($_.Value / 100, 2)}}}
@@ -413,7 +440,7 @@ Function Rename-Sensor {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [PSObject]$Sensor,
+        [PSCustomObject]$Sensor,
         [Parameter(Mandatory)]
         [string]$NewName
     )
@@ -426,7 +453,7 @@ Function Update-SensorConfig {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory,ValueFromPipeline)]
-        [PSObject]$Sensor,
+        [PSCustomObject]$Sensor,
         [Parameter(Mandatory)]
         [hashtable]$Config
     )
@@ -461,7 +488,7 @@ Function Get-GroupByName {
         [Parameter(Mandatory)]
         [string]$Name
     )
-    Get-AllGroups | ForEach-Object {$_.PSObject.Properties | Where-Object {$_.Value.Name -match $Name}}
+    Get-AllGroups | ConvertTo-FlatObject | Where-Object {$_.Name -match $Name}
 }
 
 # $conf = New-GroupState 
@@ -472,11 +499,10 @@ Function Set-GroupState {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [GroupState[]]$GroupState
+        [PSCustomObject[]]$GroupState
     )
     process {
-        # Name == id in the DeConz API here. This is due to each noteproperty being the API ID of the group. 
-        New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.Name)/action" -Data $GroupState.State
+        New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.id)/action" -Data $GroupState.State
     }
 }
 
@@ -485,7 +511,7 @@ Function Set-GroupPowerState {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSObject[]]$Group,
+        [PSCustomObject[]]$Group,
         [switch]$off
     )
     begin {

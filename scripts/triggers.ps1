@@ -5,27 +5,24 @@ param(
     [string]$Hostname
 )
 
-import-module conbee-api-client -MinimumVersion 0.0.7
+import-module conbee-api-client -MinimumVersion 0.0.8 -ErrorAction Stop
 
 Add-Type -AssemblyName System.Net.WebSockets.Client
 New-ConbeeSessionUsingVault -hostname $Hostname | out-null
 $ws = New-WsConnection
-$triggerSensors = Import-TriggerSensors
+$triggerSensors = Import-TriggerSensors | ConvertTo-FlatObject
 try {
     while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
         $data = $ws | Receive-WsData
         foreach ($sensor in $triggerSensors) {
-            if ($sensor.PSObject.Properties.value.ApiId -eq $data.id) {
+            if ($sensor.ApiId -eq $data.id) {
                 $sensorState = get-presenceSensors | Where-Object {$_.ApiId -eq $data.id}
                 # Using the inbuilt daylight sensor as the source of truth here (specifically the daylight property) as it has
                 # inbuilt sunrise/sunset times that update and offsets that are sane. Goal here is for the light to come on
                 # when it starts to get dark, not when we are actually plunged into darkness.
                 $daylight = Get-DaylightSensors -IgnoreFilter
-                if ($sensorState.state.presence -and -not $daylight.state.daylight) {
-                    Get-GroupByName -Name $sensor.PSObject.Properties.value.TriggerGroup | Set-GroupPowerState
-                } else {
-                    Get-GroupByName -Name $sensor.PSObject.Properties.value.TriggerGroup | Set-GroupPowerState -off
-                }
+                $powerState = $sensorState.state.presence -and (-not $daylight.state.daylight -or $sensor.IgnoreDaylight)
+                Get-GroupByName -Name $sensor.TriggerGroup | Set-GroupPowerState -off:(!$powerState)
             }
         }
     }
