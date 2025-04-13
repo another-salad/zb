@@ -385,6 +385,7 @@ $SensorTypes = [pscustomobject]@{
     Consumption = "ZHAConsumption"
     LightLevel = "ZHALightLevel"
     Daylight = "Daylight"
+    Switch = "ZHASwitch"
 }
 
 # Get-AllSensorsRaw | Set-SensorFilter
@@ -436,6 +437,10 @@ Function Get-ConsumptionSensors {
 
 Function Get-LightLevelSensors {
     $SensorTypes.LightLevel | Get-FitleredSensorData
+}
+
+Function Get-SwitchSensors {
+    $SensorTypes.Switch | Get-FitleredSensorData
 }
 
 Function Get-DaylightSensors {
