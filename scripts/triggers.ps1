@@ -28,11 +28,12 @@ try {
                 # Check for valid button event, as some websocket events are just empty state changes (followed by an actual state change).
                 if ($sensor.type -eq "ZHASwitch" -and $data.state.buttonevent) {
                     # Some members of the group are off, turn them all on and state override lock (to avoid presence sensors taking over)
-                    $buttonState = $data.state.buttonevent
+                    $buttonState = [int]$data.state.buttonevent
                     if (-not $Group.state.any_on) {
                         # Default to an hour if the button event is unknown
                         $OverrideHours = if ($ButtonOverrideHours.ContainsKey($buttonState)) {$ButtonOverrideHours[$buttonState] } else { $ButtonOverrideHours.1002 }
                         $GroupStateLock[$Group.id] = (Get-Date).AddHours($OverrideHours)
+                        Write-Information "Group $($Group.name) locked for $OverrideHours hours"
                         $Group | Set-GroupPowerState
                     } else {
                         # Nuke the lock and turn everything off
