@@ -138,6 +138,25 @@ Function Add-ApiIdToSensors {
     }
 }
 #endregion
+#region ZHASwitch Specific Config
+Function Add-Any_OnTargetValue {
+    [CmdletBinding()]
+    # Specific to ZHASwitches and a little odd to hold. This will allow you to set a ZHASwitch to either turn a group
+    # on or off when a button is pressed.
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [PSCustomObject]$Sensors,
+        [bool]$Any_OnTargetValue = $True  # Default to true, i.e. set the Group to 'on'
+    )
+    process {
+        $Sensors | Add-Member -Type NoteProperty -Name Any_OnTargetValue  -Value $Any_OnTargetValue -Force
+    }
+    end {
+        $Sensors
+    }
+}
+
+#endregion
 
 #region ConbeeConfig
 Function Get-ConbeeConfig {
@@ -287,7 +306,7 @@ Function Remove-SensorFromClixml {
         [PSCustomObject]$SensorXml
     )
     process {
-        $flattenedSensors | ConvertTo-FlatSensors | Foreach-Object {$SensorXml = Remove-SensorsByUniqueID $SensorXml $_}
+        $Sensors | ConvertTo-FlatSensors | Foreach-Object {$SensorXml = Remove-SensorsByUniqueID $SensorXml $_}
     }
     end {
         $SensorXml
