@@ -34,6 +34,7 @@ try {
                 # Check for valid button event, as some websocket events are just empty state changes (followed by an actual state change).
                 $Group = Get-GroupByName -Name $sensor.TriggerGroup
                 if ($sensor.type -eq "ZHASwitch" -and $data.state.buttonevent) {
+                    Write-Information "Button event: $($data.state.buttonevent)"
                     $buttonState = [int]$data.state.buttonevent
                     # Some members of the group are off, turn them all on and state override lock (to avoid presence sensors taking over)
                     # NOTE(SALAD): MOVE THIS TO USE THE ANY_ONTRIGGERSTATE. THIS SHOULD BE AN OPTIONAL PROPERTY ON THE GROUP.
@@ -73,8 +74,16 @@ try {
                         Write-Information "Nuking stale group lock for: $($Group.name)"
                         $GroupStateLock.Remove($Group.id)  # Kill lock if it exists
                     }
-                    $sensorState = get-presenceSensors | Where-Object {$_.ApiId -eq $data.id}
-                    $powerState = $sensorState.state.presence -and ($sensor.IgnoreDaylight -or (-not $daylight.state.daylight))
+                    # NOTE: SALAD, THE BUG IS HERE.
+                    # WE ARE OCCASIONALLY NOT GETTING A SENSOR FROM THE BELOW API CALL.
+                    # TEMP HACK TO FOLLOW
+                    $Psensor = get-presenceSensors | Where-Object {$_.ApiId -eq $data.id}
+                    if (-not $Psensor) {
+                        Write-Information "could not find sensor for: $($data.id), skipping."
+                        continue
+                    }
+                    $powerState = $Psensor.state.presence -and ($sensor.IgnoreDaylight -or (-not $daylight.state.daylight))
+                    Write-Information "Sensor state: $Psensor. Power state: $powerState"
                     Get-GroupByName -Name $sensor.TriggerGroup | Set-GroupPowerState -off:(!$powerState)
                 }
             }
