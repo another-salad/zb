@@ -7,7 +7,7 @@ param(
 
 $InformationPreference = "Continue"
 
-import-module conbee-api-client -MinimumVersion 0.0.10 -ErrorAction Stop
+import-module conbee-api-client -MinimumVersion 0.0.11 -ErrorAction Stop
 
 $ButtonOverrideHours = @{
     1002 = 1  # Short press
