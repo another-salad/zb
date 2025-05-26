@@ -1,0 +1,27 @@
+name: Pester Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Powershell deps
+        shell: pwsh
+        run: |
+          Install-Module Microsoft.PowerShell.SecretManagement -Force -Scope CurrentUser
+          Install-Module Microsoft.PowerShell.SecretStore -Force -Scope CurrentUser
+          Install-Module Pester -Force -Scope CurrentUser
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Invoke-Pester -Path ./src/ps/tests -Output Detailed
