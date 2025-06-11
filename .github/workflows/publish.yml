@@ -12,6 +12,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Powershell deps
+        shell: pwsh
+        run: |
+          Install-Module Microsoft.PowerShell.SecretManagement -Force -Scope CurrentUser
+          Install-Module Microsoft.PowerShell.SecretStore -Force -Scope CurrentUser
+
       - name: Publish to PSGallery
         shell: pwsh
         env:
