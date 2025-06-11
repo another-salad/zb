@@ -12,7 +12,7 @@
 RootModule = 'conbee-api-client.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.11'
+ModuleVersion = '0.0.12'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -120,10 +120,10 @@ PrivateData = @{
 
         # External dependent modules of this module
         # NOTE(Another-Salad): This is purely a hack for my local posh repo.
-        ExternalModuleDependencies = @(
-            "Microsoft.PowerShell.SecretManagement",
-            "Microsoft.PowerShell.SecretStore"
-        )
+        # ExternalModuleDependencies = @(
+        #     "Microsoft.PowerShell.SecretManagement",
+        #     "Microsoft.PowerShell.SecretStore"
+        # )
 
     } # End of PSData hashtable
 

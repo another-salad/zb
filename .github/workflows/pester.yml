@@ -19,7 +19,6 @@ jobs:
         run: |
           Install-Module Microsoft.PowerShell.SecretManagement -Force -Scope CurrentUser
           Install-Module Microsoft.PowerShell.SecretStore -Force -Scope CurrentUser
-          Install-Module Pester -Force -Scope CurrentUser
 
       - name: Run Pester tests
         shell: pwsh
