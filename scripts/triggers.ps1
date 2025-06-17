@@ -7,7 +7,7 @@ param(
 
 $InformationPreference = "Continue"
 
-import-module conbee-api-client -MinimumVersion 0.0.11 -ErrorAction Stop
+import-module conbee-api-client -MinimumVersion 0.0.12 -ErrorAction Stop
 
 $ButtonOverrideHours = @{
     1002 = 1  # Short press
@@ -34,7 +34,7 @@ try {
                 # Check for valid button event, as some websocket events are just empty state changes (followed by an actual state change).
                 $Group = Get-GroupByName -Name $sensor.TriggerGroup
                 if ($sensor.type -eq "ZHASwitch" -and $data.state.buttonevent) {
-                    Write-Information "Button event: $($data.state.buttonevent)"
+                    Write-Host "Button event: $($data.state.buttonevent)"
                     $buttonState = [int]$data.state.buttonevent
                     # Some members of the group are off, turn them all on and state override lock (to avoid presence sensors taking over)
                     # NOTE(SALAD): MOVE THIS TO USE THE ANY_ONTRIGGERSTATE. THIS SHOULD BE AN OPTIONAL PROPERTY ON THE GROUP.
@@ -43,12 +43,12 @@ try {
                         # Default to an hour if the button event is unknown
                         $OverrideHours = if ($ButtonOverrideHours.ContainsKey($buttonState)) {$ButtonOverrideHours[$buttonState] } else { $ButtonOverrideHours.1002 }
                         $GroupStateLock[$Group.id] = (Get-Date).AddHours($OverrideHours)
-                        Write-Information "Group $($Group.name) locked for $OverrideHours hours"
+                        Write-Host "Group $($Group.name) locked for $OverrideHours hours"
                         $Group | Set-GroupPowerState
                     } else {
                         if ($GroupStateLock.ContainsKey($Group.id)) {
                             $GroupStateLock.Remove($Group.id)
-                            Write-Information "Group $($Group.name) unlocked"
+                            Write-Host "Group $($Group.name) unlocked"
                         }
                         $Group | Set-GroupPowerState -off
                         # If its dark, let the presence sensor take over. But we should at least do a cheeky flicker so we know the lock has been killed.
@@ -59,8 +59,7 @@ try {
                             }
                         }
                     }
-                # Will be a Presense sensor (as these are the only types we currently listen for)
-                } else {
+                } elseif ($sensor.type -eq "ZHAPresence") {
                     # The presense sensors will regulary send updates including state (even if there is no _change_).
                     # We will be able to abide by the lock and let the time expire (if it isn't nuked by a button press).
                     # The next update cycle after this time should bring us back to normal presense based operation.
@@ -71,19 +70,24 @@ try {
                         if ($GroupStateLock[$Group.id] -gt (Get-Date)) {
                             continue
                         }
-                        Write-Information "Nuking stale group lock for: $($Group.name)"
+                        Write-Host "Nuking stale group lock for: $($Group.name)"
                         $GroupStateLock.Remove($Group.id)  # Kill lock if it exists
                     }
-                    # NOTE: SALAD, THE BUG IS HERE.
-                    # WE ARE OCCASIONALLY NOT GETTING A SENSOR FROM THE BELOW API CALL.
-                    # TEMP HACK TO FOLLOW
-                    $Psensor = get-presenceSensors | Where-Object {$_.ApiId -eq $data.id}
-                    if (-not $Psensor) {
-                        Write-Information "could not find sensor for: $($data.id), skipping."
+
+                    $allActiveSensors = Get-PresenceSensors
+                    # Get all sensors from TriggerSensors that have the same TriggerGroup as the current sensor.
+                    $GroupTriggerSensors = $triggerSensors | Where-Object {$_.TriggerGroup -eq $sensor.TriggerGroup -and $_.type -eq "ZHAPresence"}
+                    # Keep this hack in as we were having null responses from the API turn off lights for no good reason and its annoying.
+                    $missingSensors = $GroupTriggerSensors | Where-Object {$AllActiveSensors.ApiId -notcontains $_.ApiId}
+                    if ($missingSensors) {
+                        Write-Host "Could not find these sensors in api response: $($missingSensors.ApiId -join ', '), skipping."
                         continue
                     }
-                    $powerState = $Psensor.state.presence -and ($sensor.IgnoreDaylight -or (-not $daylight.state.daylight))
-                    Write-Information "Sensor state: $Psensor. Power state: $powerState"
+                    $PresenceDetected = [bool]($allActiveSensors | Where-Object {$GroupTriggerSensors.ApiId -eq $_.ApiId -and $_.state.presence} | Measure-Object | Select-Object -ExpandProperty Count)
+                    $IgnoreDaylightSetting = [bool]($GroupTriggerSensors | Where-Object {$_.IgnoreDaylight} | Measure-Object | Select-Object -ExpandProperty Count)
+
+                    $powerState = $PresenceDetected -and ($IgnoreDaylightSetting -or (-not $daylight.state.daylight))
+                    Write-Host "Sensor Id: $($sensor.ApiId) Presence detected: $PresenceDetected, Ignore Daylight: $IgnoreDaylightSetting, Power state: $powerState"
                     Get-GroupByName -Name $sensor.TriggerGroup | Set-GroupPowerState -off:(!$powerState)
                 }
             }
