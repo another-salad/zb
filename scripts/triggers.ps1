@@ -2,14 +2,18 @@
 # focusing on presence sesnors as the trigger for the moment, likely to change with time.
 
 param(
-    [string]$Hostname
+    [string]$Hostname,
+    [Switch]$Testing
 )
 
 $InformationPreference = "Continue"
 
-import-module conbee-api-client -MinimumVersion 0.0.13 -ErrorAction Stop
-# local import for testing
-#Import-Module -Name "$PSScriptRoot\..\src\ps\conbee-api-client\conbee-api-client.psd1" -Force -ErrorAction Stop
+# For testing local development changes
+if ($testing) {
+    Import-Module -Name "$PSScriptRoot\..\src\ps\conbee-api-client\conbee-api-client.psd1" -Force -ErrorAction Stop
+} else{
+    import-module conbee-api-client -MinimumVersion 0.0.13 -ErrorAction Stop
+}
 
 $ButtonOverrideHours = @{
     1002 = 1  # Short press
