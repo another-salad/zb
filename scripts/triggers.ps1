@@ -7,7 +7,9 @@ param(
 
 $InformationPreference = "Continue"
 
-import-module conbee-api-client -MinimumVersion 0.0.12 -ErrorAction Stop
+import-module conbee-api-client -MinimumVersion 0.0.13 -ErrorAction Stop
+# local import for testing
+#Import-Module -Name "$PSScriptRoot\..\src\ps\conbee-api-client\conbee-api-client.psd1" -Force -ErrorAction Stop
 
 $ButtonOverrideHours = @{
     1002 = 1  # Short press
@@ -21,6 +23,8 @@ Add-Type -AssemblyName System.Net.WebSockets.Client
 New-ConbeeSessionUsingVault -hostname $Hostname | out-null
 $ws = New-WsConnection
 $triggerSensors = Import-TriggerSensors | ConvertTo-FlatObject
+
+$DarkSensorCache = @{}
 
 try {
     while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
@@ -83,12 +87,30 @@ try {
                         Write-Host "Could not find these sensors in api response: $($missingSensors.ApiId -join ', '), skipping."
                         continue
                     }
-                    $PresenceDetected = [bool]($allActiveSensors | Where-Object {$GroupTriggerSensors.ApiId -eq $_.ApiId -and $_.state.presence} | Measure-Object | Select-Object -ExpandProperty Count)
-                    $IgnoreDaylightSetting = [bool]($GroupTriggerSensors | Where-Object {$_.IgnoreDaylight} | Measure-Object | Select-Object -ExpandProperty Count)
+                    # Get current state of all relevant sensors for later processing.
+                    $LiveGroupSensorStates = $allActiveSensors | Where-Object {$GroupTriggerSensors.ApiId -eq $_.ApiId}
+                    $PresenceDetected = Test-AnySensorProperty -Sensors $LiveGroupSensorStates -Predicate { $_.state.presence }
+                    $IsDark = Test-AnySensorProperty -Sensors $LiveGroupSensorStates -Predicate { $_.state.dark }
+                    $IgnoreDaylightSetting = Test-AnySensorProperty -Sensors $GroupTriggerSensors -Predicate { $_.IgnoreDaylight }
 
-                    $powerState = $PresenceDetected -and ($IgnoreDaylightSetting -or (-not $daylight.state.daylight))
-                    Write-Host "Sensor Id: $($sensor.ApiId) Presence detected: $PresenceDetected, Ignore Daylight: $IgnoreDaylightSetting, Power state: $powerState"
-                    Get-GroupByName -Name $sensor.TriggerGroup | Set-GroupPowerState -off:(!$powerState)
+                    if ($PresenceDetected) {
+                        if ($IsDark -and (-not $DarkSensorCache.ContainsKey($sensor.ApiId))) {
+                            $DarkSensorCache[$sensor.ApiId] = @{Dark = $true; TimeAdded = (Get-Date)}
+                        }
+                        # We are creating a cache as when you walk into the room the light will come on, meaning it is no longer dark. Therefore reading the direct
+                        # state from the sensor will only bring you sadness.
+                        # The cache will likely be empty here, but this is fine as we are also checking our ignore settings and the daylight sensor state (which is a virtual sensor,
+                        # getting the sunrise/sunset values directly from the deconz API (including any offsets configured)).
+                        $EffectiveDark = ($DarkSensorCache[$sensor.ApiId].Dark) -or ($IgnoreDaylightSetting -or (-not $daylight.state.daylight))
+                    } else {
+                        $DarkSensorCache.Remove($sensor.ApiId)
+                        # we don't see anyone, so effective dark is false (does a tree make a sound if no one is there to hear it? (Yes ofc it bloody does, but you get me...))
+                        $EffectiveDark = $False
+                    }
+                    Write-Host "Current dark sensor cache: $($DarkSensorCache | ConvertTo-Json -Depth 3)"
+
+                    Write-Host "Sensor Id: $($sensor.ApiId) Presence detected: $PresenceDetected, Ignore Daylight: $IgnoreDaylightSetting, Real dark: $isDark, Effective dark (Power state): $EffectiveDark"
+                    Get-GroupByName -Name $sensor.TriggerGroup | Set-GroupPowerState -off:(!$EffectiveDark)
                 }
             }
         }

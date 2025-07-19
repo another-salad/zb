@@ -393,6 +393,17 @@ Filter Set-SensorFilter {
         $Sensors | Format-ZBDevices | Where-object {$_.uniqueid -notin $IdsToIgnore}
     }
 }
+
+Function Test-AnySensorProperty {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [PSCustomObject]$Sensors,
+        [Parameter(Mandatory)]
+        [ScriptBlock]$Predicate
+    )
+    [bool]($Sensors | Where-Object $Predicate | Select-Object -First 1)
+}
 #endregion
 
 #region SensorFunctions
@@ -500,6 +511,12 @@ Function Update-SensorConfig {
     process {
         New-ConbeeApiCall -Method PUT -Endpoint "sensors/$($Sensor.ApiId)/config" -Data $Config
     }
+}
+
+Function Show-CurrentTemperature {
+    [CmdletBinding()]
+    param()
+    Get-TemperatureSensors | Select-Object name, @{Name='temperature';Expression={ '{0:N2}' -f $_.state.temperature }} | Format-Table -AutoSize
 }
 #endregion
 
