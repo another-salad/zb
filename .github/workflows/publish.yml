@@ -3,6 +3,8 @@ name: Publish to PSGallery
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'src/ps/conbee-api-client/**'
 
 jobs:
   publish:
