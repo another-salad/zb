@@ -65,6 +65,7 @@ try {
                         #     Write-Host "Group $($Group.name) unlocked"
                         # }
                         $GroupStateLock.Remove($Group.id)
+                        Write-Host "Group $($Group.name) unlocked"
                         $Group | Set-GroupPowerState -off
                         # If its dark, let the presence sensor take over. But we should at least do a cheeky flicker so we know the lock has been killed.
                         if (-not ($daylight.state.Daylight)) {
