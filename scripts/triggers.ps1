@@ -55,7 +55,7 @@ try {
                         Write-Host "Group $($Group.name) locked for $OverrideHours hours"
                         # Sort this out whilst not half asleep. In short I want feed back if the lock is set.
                         foreach ($powerState in @($true, $false, $true)) {
-                            start-sleep -Seconds 0.5
+                            start-sleep -Seconds 1  # under a second is too quick for the bulbs.
                             $Group | Set-GroupPowerState -off:(!$powerState)
                         }
 
