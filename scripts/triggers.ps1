@@ -81,6 +81,7 @@ try {
                     # The next update cycle after this time should bring us back to normal presense based operation.
                     # Since we just always pump the state we want to the API (seemed more logical than trying to deduce the state first given how
                     # the presense sensors work) the prior locked state should also be cleared.
+                    Write-Host "Currently locked groups: $($GroupStateLock | ConvertTo-Json -Depth 3)"
                     if ($GroupStateLock.ContainsKey($Group.id)) {
                         # If the lock is set, ignore the presence sensor
                         if ($GroupStateLock[$Group.id] -gt (Get-Date)) {
