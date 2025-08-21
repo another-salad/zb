@@ -47,17 +47,24 @@ try {
                     # Some members of the group are off, turn them all on and state override lock (to avoid presence sensors taking over)
                     # NOTE(SALAD): MOVE THIS TO USE THE ANY_ONTRIGGERSTATE. THIS SHOULD BE AN OPTIONAL PROPERTY ON THE GROUP.
                     # THIS ALLOWS A BUTTON TO SET A LOCK FOR A GROUP TO BE IN AN ON OR AN OFF STATE.
-                    if (-not $Group.state.any_on) {
+                    # Think about how to handle state switching when less sleepy: Old condition: -not $Group.state.any_on)
+                    if (-not $GroupStateLock.ContainsKey($Group.id)) {
                         # Default to an hour if the button event is unknown
                         $OverrideHours = if ($ButtonOverrideHours.ContainsKey($buttonState)) {$ButtonOverrideHours[$buttonState] } else { $ButtonOverrideHours.1002 }
                         $GroupStateLock[$Group.id] = (Get-Date).AddHours($OverrideHours)
                         Write-Host "Group $($Group.name) locked for $OverrideHours hours"
-                        $Group | Set-GroupPowerState
-                    } else {
-                        if ($GroupStateLock.ContainsKey($Group.id)) {
-                            $GroupStateLock.Remove($Group.id)
-                            Write-Host "Group $($Group.name) unlocked"
+                        # Sort this out whilst not half asleep. In short I want feed back if the lock is set.
+                        foreach ($powerState in @($true, $false, $true)) {
+                            start-sleep -Seconds 0.5
+                            $Group | Set-GroupPowerState -off:(!$powerState)
                         }
+
+                    } else {
+                        # if ($GroupStateLock.ContainsKey($Group.id)) {
+                        #     $GroupStateLock.Remove($Group.id)
+                        #     Write-Host "Group $($Group.name) unlocked"
+                        # }
+                        $GroupStateLock.Remove($Group.id)
                         $Group | Set-GroupPowerState -off
                         # If its dark, let the presence sensor take over. But we should at least do a cheeky flicker so we know the lock has been killed.
                         if (-not ($daylight.state.Daylight)) {
