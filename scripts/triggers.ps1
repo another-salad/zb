@@ -54,11 +54,15 @@ try {
                         $GroupStateLock[$Group.id] = (Get-Date).AddHours($OverrideHours)
                         Write-Host "Group $($Group.name) locked for $OverrideHours hours"
                         # Sort this out whilst not half asleep. In short I want feed back if the lock is set.
-                        foreach ($powerState in @($true, $false, $true)) {
+                        if (-not $Group.state.any_on) {
+                            $Group | Set-GroupPowerState
                             start-sleep -Seconds 1  # under a second is too quick for the bulbs.
-                            $Group | Set-GroupPowerState -off:(!$powerState)
                         }
-
+                        foreach ($powerState in @($false, $true)) {
+                            # Flicker the lights to indicate the lock has been set.
+                            $Group | Set-GroupPowerState -off:(!$powerState)
+                            start-sleep -Seconds 1
+                        }
                     } else {
                         # if ($GroupStateLock.ContainsKey($Group.id)) {
                         #     $GroupStateLock.Remove($Group.id)
