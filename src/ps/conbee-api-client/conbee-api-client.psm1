@@ -131,9 +131,11 @@ Function Add-ApiIdToSensors {
         [PSCustomObject]$Sensors
     )
     process {
-        foreach ($sensor in $Sensors.PSObject.Properties) {
-            $sensor.Value | Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
+        $Sensors.PSObject.Properties | ForEach-Object {
+            $_.Value | Add-Member -Type NoteProperty -Name ApiId -Value $_.Name -Force
         }
+    }
+    end {
         $Sensors
     }
 }
@@ -220,9 +222,34 @@ Function Get-SensorsFromProperties {
 
 Function New-SensorTriggerConfig {
     [pscustomobject]@{
-        TriggerGroup = $null
+        TriggerGroup = @()
         IgnoreDaylight = $false
     }
+}
+
+Function Add-NewTriggerGroupToSensor {
+    # Handles the old style triggergroup which is just a string.
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [PSCustomObject]$Sensor,
+        [Parameter(Mandatory)]
+        [string]$TriggerGroup
+    )
+    process {
+        if (-not $Sensor.TriggerGroup) {
+            Write-Error "Sensor does not have a TriggerGroup property. Please add it via Add-TriggerConfigToSensors."
+            return
+        }
+        if ($Sensor.TriggerGroup -is [string]) {
+            $Sensor.TriggerGroup = @($Sensor.TriggerGroup)
+        }
+        if (-not $Sensor.TriggerGroup.Contains($TriggerGroup)) {
+            Write-Information "Adding TriggerGroup '$TriggerGroup' to sensor '$($Sensor.name)'"
+            $Sensor.TriggerGroup += $TriggerGroup
+        }
+        $Sensor
+    }    
 }
 
 Function Add-TriggerConfigToSensors {
@@ -239,8 +266,10 @@ Function Add-TriggerConfigToSensors {
             $TriggerConfig.PSObject.Properties | ForEach-Object {
                 $sensor | Add-Member -Type NoteProperty -Name $_.Name -Value $_.Value -Force
             }
-            $sensor
         }
+    }
+    end {
+        $Sensors
     }
 }
 
