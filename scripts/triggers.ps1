@@ -55,7 +55,7 @@ try {
                         Write-Host "Group $($Group.name) locked for $OverrideHours hours"
                         if (-not $Group.state.any_on) {
                             # Sort this out whilst not half asleep. In short I want feedback if the lock is set and the lights are already on.
-                            foreach ($powerState in @($true, $false, $true)) {d
+                            foreach ($powerState in @($true, $false, $true)) {
                                 $Group | Set-GroupPowerState -off:(!$powerState)
                                 start-sleep -Seconds 1 # under a second is too quick for the bulbs.
                             }
