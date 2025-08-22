@@ -69,13 +69,19 @@ try {
                         # }
                         $GroupStateLock.Remove($Group.id)
                         Write-Host "Group $($Group.name) unlocked"
-                        $Group | Set-GroupPowerState -off
+                        # NOTE (SALAD): THIS NEEDS CENTRALISING AS IT IS DUPLICATED BELOW.
+                        # We want consistent behaviour when the light group is on and we are unlocking it (as groups can ignore daylight).
+                        $GroupTriggerSensors = $triggerSensors | Where-Object {$_.TriggerGroup -eq $sensor.TriggerGroup -and $_.type -eq "ZHAPresence"}
+                        $IgnoreDaylightSetting = Test-AnySensorProperty -Sensors $GroupTriggerSensors -Predicate { $_.IgnoreDaylight }
                         # If its dark, let the presence sensor take over. But we should at least do a cheeky flicker so we know the lock has been killed.
-                        if (-not ($daylight.state.Daylight)) {
-                            foreach ($powerState in @($true, $false, $true)) {
-                                start-sleep -Seconds 1
+                        if (-not ($daylight.state.Daylight) -or ($IgnoreDaylightSetting -and $group.state.any_on)) {
+                            foreach ($powerState in @($false, $true, $false, $true)) {
                                 $Group | Set-GroupPowerState -off:(!$powerState)
+                                start-sleep -Seconds 1
                             }
+                        } else {
+                            # If its daylight and the group conforms to that then just turn them off.
+                            $Group | Set-GroupPowerState -off
                         }
                     }
                 } elseif ($sensor.type -eq "ZHAPresence") {
