@@ -53,15 +53,14 @@ try {
                         $OverrideHours = if ($ButtonOverrideHours.ContainsKey($buttonState)) {$ButtonOverrideHours[$buttonState] } else { $ButtonOverrideHours.1002 }
                         $GroupStateLock[$Group.id] = (Get-Date).AddHours($OverrideHours)
                         Write-Host "Group $($Group.name) locked for $OverrideHours hours"
-                        # Sort this out whilst not half asleep. In short I want feed back if the lock is set.
                         if (-not $Group.state.any_on) {
-                            $Group | Set-GroupPowerState
-                            start-sleep -Seconds 1  # under a second is too quick for the bulbs.
-                        }
-                        foreach ($powerState in @($false, $true)) {
-                            # Flicker the lights to indicate the lock has been set.
-                            $Group | Set-GroupPowerState -off:(!$powerState)
-                            start-sleep -Seconds 1
+                            # Sort this out whilst not half asleep. In short I want feedback if the lock is set and the lights are already on.
+                            foreach ($powerState in @($true, $false, $true)) {d
+                                $Group | Set-GroupPowerState -off:(!$powerState)
+                                start-sleep -Seconds 1 # under a second is too quick for the bulbs.
+                            }
+                        } else {
+                            $Group | Set-GroupPowerState  # if we are off just turn them on.
                         }
                     } else {
                         # if ($GroupStateLock.ContainsKey($Group.id)) {
