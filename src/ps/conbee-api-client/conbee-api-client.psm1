@@ -63,6 +63,23 @@ Function ConvertTo-FlatObject {
         $PsObj | ForEach-Object { $r = $_.PSObject.Properties.Value; $r}
     }
 }
+
+Function Test-NullableParamWithinRange {
+    [CmdletBinding()]
+    param (
+        [Nullable[int]]$Value,
+        [Parameter(Mandatory)]
+        [int]$Min,
+        [Parameter(Mandatory)]
+        [int]$Max
+    )
+    # Allows nullable params to be range validated.
+    if ($null -ne $Value -and ($Value -lt $Min -or $Value -gt $Max)) {
+        Write-Error "Value must be between $Min and $Max"
+    } else {
+        $Value
+    }
+}
 #endregion
 
 #region ConbeeSession
@@ -116,8 +133,8 @@ Function New-ConbeeApiCall {
         Method = $method
         Headers = @{Accept = "application/json"}
     }
-    if ($data) {
-        $params.Add("Body", ($Data | ConvertTo-Json))
+    if ($Data) {
+        $params.Add("Body", ($Data | ConvertTo-Json -ErrorAction Stop -Depth 10))
         $params.Headers.Add("Content-Type", "application/json")
     }
 
@@ -526,13 +543,59 @@ Function Show-CurrentTemperature {
 # control their state (on/off) directly. However, if they are put into a group (can be a group of one)
 # then you can. I foresee many interactions with single plugs abstracted via groups.
 
-class GroupState {
+# https://dresden-elektronik.github.io/deconz-rest-doc/endpoints/groups/#set-group-state
+# Example params:
+# {
+#   "on": true,
+#   "bri": 180,
+#   "hue": 43680,
+#   "sat": 255,
+#   "transitiontime": 10
+# }
+class LightGroupState {
+    # Other than the Group, these properties are ingested into the API if they are not $null.
+    [Parameter(Mandatory)]
     [pscustomobject]$Group
-    [hashtable]$State
+    [bool]$On
+    [Nullable[int]]$Bri
+    [Nullable[int]]$Hue
+    [Nullable[int]]$Sat
+    [Nullable[int]]$Transitiontime
+
+    LightGroupState($Group, $On, $Bri, $Hue, $sat, $transitiontime) {
+        $this.Group = $Group
+        $this.On = $On
+        if (!$On -and $bri) {
+            Write-Warning "Invalid state, Conbee API will ignore on/off state if a Brightness value (Bri) is provided. Ignoring brightness value."
+            $this.Bri = $null
+        } else {
+            $this.Bri = Test-NullableParamWithinRange $Bri -Min 0 -Max 254
+        }
+        $this.Hue = Test-NullableParamWithinRange $Hue -Min 0 -Max 65535
+        $this.Sat = Test-NullableParamWithinRange $Sat -Min 0 -Max 254
+        $this.Transitiontime = Test-NullableParamWithinRange $Transitiontime -Min 1 -Max 10
+    }
 }
 
-Function New-GroupState {
-    [GroupState]::new()
+# "hue": 0,
+# "on": false,
+# "sat": 128,
+Function New-LightGroupState {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ValidateScript({$_.type -eq "LightGroup"})]
+        [pscustomobject]$Group,
+        # If you are providing a brightness value (i.e. Bri this is ignored by the Conbee API)
+        [switch]$Off,
+        # If these aren't explicitly defaulted to $null they'll be a 0, which is a valid value for the API.
+        # $null means "don't set this value".
+        [Nullable[int]]$Brightness     = $null,
+        [Nullable[int]]$Hue            = $null,
+        [Nullable[int]]$Saturation     = $null,
+        [Nullable[int]]$Transitiontime = $null
+    )
+    [LightGroupState]::new($Group, (!$Off), $Brightness, $Hue, $Saturation, $Transitiontime)
 }
 
 Function Get-AllGroups {
@@ -548,39 +611,60 @@ Function Get-GroupByName {
     Get-AllGroups | ConvertTo-FlatObject | Where-Object {$_.Name -match $Name}
 }
 
-# $conf = New-GroupState 
-# $conf.Group = Get-GroupByName -Name "Living Room"
-# $conf.state = @{on=$True}
+Function Get-GroupAttributes {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [pscustomobject]$Group
+    )
+    process {
+        New-ConbeeApiCall -Method GET -Endpoint "groups/$($Group.id)"
+    }
+}
+
+# $conf = Get-GroupByName -Name "Living Room" | New-LightGroupState -Bri 200
 # $conf | Set-GroupState 
 Function Set-GroupState {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSCustomObject[]]$GroupState
+        $GroupState  # Keeping this generic as we might have other settable groups in future.
     )
     process {
-        New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.id)/action" -Data $GroupState.State
+        $data = @{}
+        Foreach ($prop in $GroupState.PSObject.Properties) {
+            if ($prop.Name -ne "Group" -and $null -ne $prop.Value) {
+                $data.Add($prop.Name.ToLower(), $prop.Value)
+            }
+        }
+        New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.id)/action" -Data $data
     }
 }
+#endregion
 
-# Get-GroupByName -Name "Living Room" | Set-GroupPowerState -off
-Function Set-GroupPowerState {
+#region LightGroup Helpers
+Function Set-DimLightCycle {
+    # Useful if you want to acknowledge something like a button event when the lights are on.
     [CmdletBinding()]
-    param (
+    param(
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSCustomObject[]]$Group,
-        [switch]$off
+        [LightGroupState]$GroupState,
+        [int]$FlickerCount = 1
     )
-    begin {
-        $conf = New-GroupState
-        $conf.State = @{on = ($True -ne $off)}
-    }
     process {
-        $Group | ForEach-Object { $conf.Group = $_ ; $conf | Set-GroupState }
+        for ($i = 0; $i -lt $FlickerCount; $i++) {
+            $GroupState.Bri = $GroupState.Bri / 2
+            $GroupState | Set-GroupState
+            sleep ([int]$GroupState.Transitiontime)
+            $GroupState.Bri = $GroupState.Bri * 2
+            $GroupState | Set-GroupState
+            sleep ([int]$GroupState.Transitiontime)
+        }
     }
 }
 
 #endregion
+
 #region WebSocket helpers
 Function New-WsConnection {
     [CmdletBinding()]
