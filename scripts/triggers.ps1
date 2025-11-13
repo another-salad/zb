@@ -3,7 +3,8 @@
 
 param(
     [string]$Hostname,
-    [Switch]$Testing
+    [Switch]$Testing,
+    [int]$MaximumLightBrightness = 250  # Max brightness to set lights to when triggered. Default is 200 (out of 254).
 )
 
 $InformationPreference = "Continue"
@@ -12,7 +13,7 @@ $InformationPreference = "Continue"
 if ($testing) {
     Import-Module -Name "$PSScriptRoot\..\src\ps\conbee-api-client\conbee-api-client.psd1" -Force -ErrorAction Stop
 } else{
-    import-module conbee-api-client -MinimumVersion 0.0.13 -ErrorAction Stop
+    import-module conbee-api-client -MinimumVersion 0.0.14 -ErrorAction Stop
 }
 
 $ButtonOverrideHours = @{
@@ -22,6 +23,7 @@ $ButtonOverrideHours = @{
 }
 
 $GroupStateLock = @{}
+$OnOffOnlyGroups = @("plugos")  # Unfortunately I cannot find a way of detecting what a group supports via the API.
 
 Add-Type -AssemblyName System.Net.WebSockets.Client
 New-ConbeeSessionUsingVault -hostname $Hostname | out-null
@@ -29,6 +31,7 @@ $ws = New-WsConnection
 $triggerSensors = Import-TriggerSensors | ConvertTo-FlatObject
 
 $DarkSensorCache = @{}
+
 
 try {
     while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
@@ -39,32 +42,50 @@ try {
         $data = $ws | Receive-WsData
         foreach ($sensor in $triggerSensors) {
             if ($sensor.ApiId -eq $data.id) {
-                # Check for valid button event, as some websocket events are just empty state changes (followed by an actual state change).
                 $Group = Get-GroupByName -Name $sensor.TriggerGroup
+                $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $OnOffOnlyGroups) {$False} else {$True}) -Force
+                $LightGroupState = $Group | New-LightGroupState -transitiontime 10
+                if ($Group.SupportsBrightness) {
+                    $LightGroupState.Bri = $MaximumLightBrightness
+                } else {
+                    # This should already be $null, but lets be explicit.
+                    $LightGroupState.Bri = $null
+                }
+                # Check for valid button event, as some websocket events are just empty state changes (followed by an actual state change).
                 if ($sensor.type -eq "ZHASwitch" -and $data.state.buttonevent) {
                     Write-Host "Button event: $($data.state.buttonevent)"
                     $buttonState = [int]$data.state.buttonevent
                     # Some members of the group are off, turn them all on and state override lock (to avoid presence sensors taking over)
                     # NOTE(SALAD): MOVE THIS TO USE THE ANY_ONTRIGGERSTATE. THIS SHOULD BE AN OPTIONAL PROPERTY ON THE GROUP.
                     # THIS ALLOWS A BUTTON TO SET A LOCK FOR A GROUP TO BE IN AN ON OR AN OFF STATE.
-                    if (-not $Group.state.any_on) {
+                    # Think about how to handle state switching when less sleepy: Old condition: -not $Group.state.any_on)
+                    if (-not $GroupStateLock.ContainsKey($Group.id)) {
                         # Default to an hour if the button event is unknown
                         $OverrideHours = if ($ButtonOverrideHours.ContainsKey($buttonState)) {$ButtonOverrideHours[$buttonState] } else { $ButtonOverrideHours.1002 }
                         $GroupStateLock[$Group.id] = (Get-Date).AddHours($OverrideHours)
                         Write-Host "Group $($Group.name) locked for $OverrideHours hours"
-                        $Group | Set-GroupPowerState
-                    } else {
-                        if ($GroupStateLock.ContainsKey($Group.id)) {
-                            $GroupStateLock.Remove($Group.id)
-                            Write-Host "Group $($Group.name) unlocked"
+                        $LightGroupState | Set-LightGroupState
+                        if ($Group.state.any_on) {  # Old value prior to button press.
+                            # Lights were on prior, so we should acknowledge that a lock has been set.
+                            $LightGroupState | Set-LightAcknowledge -OnOffOnly:(!$Group.SupportsBrightness)
+                            
                         }
-                        $Group | Set-GroupPowerState -off
+                    } else {
+                        $GroupStateLock.Remove($Group.id)
+                        Write-Host "Group $($Group.name) unlocked"
+                        # NOTE (SALAD): THIS NEEDS CENTRALISING AS IT IS DUPLICATED BELOW.
+                        # We want consistent behaviour when the light group is on and we are unlocking it (as groups can ignore daylight).
+                        $GroupTriggerSensors = $triggerSensors | Where-Object {$_.TriggerGroup -eq $sensor.TriggerGroup -and $_.type -eq "ZHAPresence"}
+                        $IgnoreDaylightSetting = Test-AnySensorProperty -Sensors $GroupTriggerSensors -Predicate { $_.IgnoreDaylight }
                         # If its dark, let the presence sensor take over. But we should at least do a cheeky flicker so we know the lock has been killed.
-                        if (-not ($daylight.state.Daylight)) {
-                            foreach ($powerState in @($true, $false, $true)) {
-                                start-sleep -Seconds 1
-                                $Group | Set-GroupPowerState -off:(!$powerState)
-                            }
+                        if (-not ($daylight.state.Daylight) -or ($IgnoreDaylightSetting -and $group.state.any_on)) {
+                            # If its dark or the group ignores daylight and is on, flicker the lights to show we are unlocking.
+                            $LightGroupState | Set-LightAcknowledge -FlickerCount 2 -OnOffOnly:(!$Group.SupportsBrightness)
+                        } else {
+                            # If its daylight and the group conforms to that then just turn them off.
+                            $LightGroupState.Bri = $null
+                            $LightGroupState.On = $false
+                            $LightGroupState | Set-LightGroupState
                         }
                     }
                 } elseif ($sensor.type -eq "ZHAPresence") {
@@ -73,6 +94,7 @@ try {
                     # The next update cycle after this time should bring us back to normal presense based operation.
                     # Since we just always pump the state we want to the API (seemed more logical than trying to deduce the state first given how
                     # the presense sensors work) the prior locked state should also be cleared.
+                    # Write-Host "Currently locked groups: $($GroupStateLock | ConvertTo-Json -Depth 3)"
                     if ($GroupStateLock.ContainsKey($Group.id)) {
                         # If the lock is set, ignore the presence sensor
                         if ($GroupStateLock[$Group.id] -gt (Get-Date)) {
@@ -111,10 +133,15 @@ try {
                         # we don't see anyone, so effective dark is false (does a tree make a sound if no one is there to hear it? (Yes ofc it bloody does, but you get me...))
                         $EffectiveDark = $False
                     }
-                    Write-Host "Current dark sensor cache: $($DarkSensorCache | ConvertTo-Json -Depth 3)"
+                    # Write-Host "Current dark sensor cache: $($DarkSensorCache | ConvertTo-Json -Depth 3)"
 
                     Write-Host "Sensor Id: $($sensor.ApiId) Presence detected: $PresenceDetected, Ignore Daylight: $IgnoreDaylightSetting, Real dark: $isDark, Effective dark (Power state): $EffectiveDark"
-                    Get-GroupByName -Name $sensor.TriggerGroup | Set-GroupPowerState -off:(!$EffectiveDark)
+                    if (-not $EffectiveDark) {
+                        # LightGroup default state is $MaximumLightBrightness, so just turn them off if we are in _effective_ daylight.
+                        $LightGroupState.Bri = $null
+                        $LightGroupState.On = $false
+                    }
+                    $LightGroupState | Set-LightGroupState
                 }
             }
         }

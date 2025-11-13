@@ -141,13 +141,13 @@ Function New-ConbeeApiCall {
     Invoke-RestMethod @params
 }
 
-Function Add-ApiIdToSensors {
+Function Add-ApiIdToSensor {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [PSCustomObject]$Sensors
     )
-    process {
+    end {
         foreach ($sensor in $Sensors.PSObject.Properties) {
             $sensor.Value | Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
         }
@@ -186,9 +186,9 @@ Function ConvertTo-FlatSensors {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSCustomObject]$Sensors
+        [PSCustomObject[]]$Sensors
     )
-    process {
+    end {
         if ($Sensors.PSObject.Properties.Name -contains "uniqueid") {
             # Already flattened, use as-is
             $Sensors
@@ -438,7 +438,7 @@ $SensorTypes = [pscustomobject]@{
 # Get-AllSensorsRaw | Set-SensorFilter
 Function Get-AllSensorsRaw {
     # Ok, this isn't really _raw_ anymore. I'm adding the ID of the sensor to its returned data for an easy life.
-    New-ConbeeApiCall -Method GET -Endpoint "sensors" | Add-ApiIdToSensors
+    New-ConbeeApiCall -Method GET -Endpoint "sensors" | Add-ApiIdToSensor
 }
 
 Function Get-FitleredSensorData {
@@ -552,41 +552,26 @@ Function Show-CurrentTemperature {
 #   "sat": 255,
 #   "transitiontime": 10
 # }
-class LightGroupState {
-    # Other than the Group, these properties are ingested into the API if they are not $null.
-    [Parameter(Mandatory)]
-    [pscustomobject]$Group
-    [bool]$On
-    [Nullable[int]]$Bri
-    [Nullable[int]]$Hue
-    [Nullable[int]]$Sat
-    [Nullable[int]]$Transitiontime
 
-    LightGroupState($Group, $On, $Bri, $Hue, $sat, $transitiontime) {
-        $this.Group = $Group
-        $this.On = $On
-        if (!$On -and $bri) {
-            Write-Warning "Invalid state, Conbee API will ignore on/off state if a Brightness value (Bri) is provided. Ignoring brightness value."
-            $this.Bri = $null
-        } else {
-            $this.Bri = Test-NullableParamWithinRange $Bri -Min 0 -Max 254
-        }
-        $this.Hue = Test-NullableParamWithinRange $Hue -Min 0 -Max 65535
-        $this.Sat = Test-NullableParamWithinRange $Sat -Min 0 -Max 254
-        $this.Transitiontime = Test-NullableParamWithinRange $Transitiontime -Min 1 -Max 10
-    }
-}
-
-# "hue": 0,
-# "on": false,
-# "sat": 128,
+# I've seen some oddities with the deconz api I need to investigate futher. Setting the brightness to 0 has inconsistent behaviour.
+# I have seen it 'turn off', but I have also seen 0 set it to a very low brightness.
+# I've also seen some bulbs get stuck at a certain brightness, and only an on/off toggle will reset them.
+# OK, I either dreamt of a world where setting bri to 0 would turn off the light, or there has been a change in the API.
+# https://dresden-elektronik.github.io/deconz-rest-doc/endpoints/groups/#set-group-state
+# I swear this used to explain that supplying a bri value would supercede the on/off state.
+# I now see two requests being sent if I supply the api with both an On and a Bri value:
+# success
+# -------
+# @{/groups/8/action/on=True}
+# @{/groups/8/action/bri=150}
+# To turn off the light, I can't send a bri and an on=false, I have to just send on=false. Good.
+#
 Function New-LightGroupState {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory, ValueFromPipeline)]
-        [ValidateScript({$_.type -eq "LightGroup"})]
+        [ValidateScript({$_.type -eq "LightGroup"})]  # From deconz API
         [pscustomobject]$Group,
-        # If you are providing a brightness value (i.e. Bri this is ignored by the Conbee API)
         [switch]$Off,
         # If these aren't explicitly defaulted to $null they'll be a 0, which is a valid value for the API.
         # $null means "don't set this value".
@@ -595,7 +580,19 @@ Function New-LightGroupState {
         [Nullable[int]]$Saturation     = $null,
         [Nullable[int]]$Transitiontime = $null
     )
-    [LightGroupState]::new($Group, (!$Off), $Brightness, $Hue, $Saturation, $Transitiontime)
+    Test-NullableParamWithinRange $Brightness -Min 0 -Max 255 | out-null
+    Test-NullableParamWithinRange $Hue -Min 0 -Max 65535 | out-null
+    Test-NullableParamWithinRange $Saturation -Min 0 -Max 254 | out-null
+    Test-NullableParamWithinRange $Transitiontime -Min 1 -Max 10 | out-null
+    [PSCustomObject]@{
+        PsTypeName     = 'LightGroupState'
+        Group          = $Group
+        Bri            = $Brightness
+        On             = !$Off
+        Hue            = $Hue
+        Sat            = $Saturation
+        Transitiontime = $Transitiontime
+    }
 }
 
 Function Get-AllGroups {
@@ -623,12 +620,12 @@ Function Get-GroupAttributes {
 }
 
 # $conf = Get-GroupByName -Name "Living Room" | New-LightGroupState -Bri 200
-# $conf | Set-GroupState 
-Function Set-GroupState {
+# $conf | Set-LightGroupState 
+Function Set-LightGroupState {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        $GroupState  # Keeping this generic as we might have other settable groups in future.
+        [PsCustomobject][PsTypeName('LightGroupState')]$GroupState
     )
     process {
         $data = @{}
@@ -638,27 +635,53 @@ Function Set-GroupState {
             }
         }
         New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.id)/action" -Data $data
+        if ($GroupState.Transitiontime) {
+            # item (likely a light has a transistion time which is in 1/10 seconds), wait for it to complete before returning.
+            Start-Sleep -Seconds ([float]$GroupState.Transitiontime / 10)
+        }
     }
 }
 #endregion
 
 #region LightGroup Helpers
-Function Set-DimLightCycle {
+Function Set-LightAcknowledge {
     # Useful if you want to acknowledge something like a button event when the lights are on.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]
-        [LightGroupState]$GroupState,
-        [int]$FlickerCount = 1
+        [PsCustomobject][PsTypeName('LightGroupState')]$GroupState,
+        [int]$FlickerCount = 1,
+        [switch]$OnOffOnly
     )
     process {
+        if (-not $GroupState.Transitiontime) {
+            Write-Warning "No transition time set, setting to 5 (0.5 seconds) for flicker effect unless you won't see anything."
+            $GroupState.Transitiontime = 5
+        }
+        $originalBri = $GroupState.Bri
         for ($i = 0; $i -lt $FlickerCount; $i++) {
-            $GroupState.Bri = $GroupState.Bri / 2
-            $GroupState | Set-GroupState
-            sleep ([int]$GroupState.Transitiontime)
-            $GroupState.Bri = $GroupState.Bri * 2
-            $GroupState | Set-GroupState
-            sleep ([int]$GroupState.Transitiontime)
+            if ($OnOffOnly) {
+                $GroupState.Bri = $null  # Ensure brightness isn't set, as that will override on/off.
+                $GroupState.On = $false
+                $GroupState | Set-LightGroupState
+                $GroupState.On = $true
+                $GroupState | Set-LightGroupState
+            } else {
+                # Flicker by halving brightness, then restoring it.
+                $GroupState.Bri = $GroupState.Bri / 2
+                $GroupState | Set-LightGroupState
+                $GroupState.Bri = $GroupState.Bri * 2
+                $GroupState | Set-LightGroupState
+            }
+        }
+        # These API calls are relatively fire and forget, I don't want to potentially spend ages changing state and
+        # confirming the state is correct if these can be lossy, as I just want to room to be bright again.
+        # The point of the above is to give the user some form of feedback that an action has been registered.
+        # I'd prefer that to potentially look a little odd, rather than spend ages getting it perfect.
+        # Lets make sure we are actually at the original brightness here though, as that will be annoying if not.
+        if ($originalBri -ne ($GroupState | Get-GroupAttributes).action.bri) {
+            $GroupState.Bri = $originalBri
+            $GroupState | Set-LightGroupState
         }
     }
 }
