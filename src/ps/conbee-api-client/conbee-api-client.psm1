@@ -182,18 +182,20 @@ Function Get-ConbeeConfig {
 #endregion
 
 #region SensorManagement
-Function ConvertTo-FlatSensors {
+Function ConvertTo-FlatSensor {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSCustomObject[]]$Sensors
+        [PSCustomObject]$Sensor
     )
-    end {
-        if ($Sensors.PSObject.Properties.Name -contains "uniqueid") {
-            # Already flattened, use as-is
-            $Sensors
-        } else {
-            $Sensors | ConvertTo-FlatObject
+    process {
+        $_ | ForEach-Object {
+            if ($_.PSObject.Properties.Name -contains "uniqueid") {
+                # Already flattened, use as-is
+                $_
+            } else {
+                $_ | ConvertTo-FlatObject
+            }
         }
     }
 }
@@ -295,7 +297,7 @@ Function Add-SensorToIgnore {
         [PSCustomObject]$Sensors
     )
     process {
-        $sensors | ConvertTo-FlatSensors | Add-SensorToClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
+        $sensors | ConvertTo-FlatSensor | Add-SensorToClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
     }
 }
 
@@ -306,7 +308,7 @@ Function Add-SensorToTriggers {
         [PSCustomObject]$Sensors
     )
     process {
-        $Sensors | ConvertTo-FlatSensors | ForEach-Object {
+        $Sensors | ConvertTo-FlatSensor | ForEach-Object {
             if (-not $_.TriggerGroup) {
                 Write-Warning "Add TriggerGroup to: $_ via Add-TriggerGroupToSensor"; return
             }
@@ -323,7 +325,7 @@ Function Remove-SensorFromClixml {
         [PSCustomObject]$SensorXml
     )
     process {
-        $Sensors | ConvertTo-FlatSensors | Foreach-Object {$SensorXml = Remove-SensorsByUniqueID $SensorXml $_}
+        $Sensors | ConvertTo-FlatSensor | Foreach-Object {$SensorXml = Remove-SensorsByUniqueID $SensorXml $_}
     }
     end {
         $SensorXml
