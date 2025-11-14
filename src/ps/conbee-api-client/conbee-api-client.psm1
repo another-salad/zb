@@ -63,6 +63,23 @@ Function ConvertTo-FlatObject {
         $PsObj | ForEach-Object { $r = $_.PSObject.Properties.Value; $r}
     }
 }
+
+Function Test-NullableParamWithinRange {
+    [CmdletBinding()]
+    param (
+        [Nullable[int]]$Value,
+        [Parameter(Mandatory)]
+        [int]$Min,
+        [Parameter(Mandatory)]
+        [int]$Max
+    )
+    # Allows nullable params to be range validated.
+    if ($null -ne $Value -and ($Value -lt $Min -or $Value -gt $Max)) {
+        Write-Error "Value must be between $Min and $Max"
+    } else {
+        $Value
+    }
+}
 #endregion
 
 #region ConbeeSession
@@ -116,21 +133,21 @@ Function New-ConbeeApiCall {
         Method = $method
         Headers = @{Accept = "application/json"}
     }
-    if ($data) {
-        $params.Add("Body", ($Data | ConvertTo-Json))
+    if ($Data) {
+        $params.Add("Body", ($Data | ConvertTo-Json -ErrorAction Stop -Depth 10))
         $params.Headers.Add("Content-Type", "application/json")
     }
 
     Invoke-RestMethod @params
 }
 
-Function Add-ApiIdToSensors {
+Function Add-ApiIdToSensor {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [PSCustomObject]$Sensors
     )
-    process {
+    end {
         foreach ($sensor in $Sensors.PSObject.Properties) {
             $sensor.Value | Add-Member -Type NoteProperty -Name ApiId -Value $sensor.Name -Force
         }
@@ -165,18 +182,20 @@ Function Get-ConbeeConfig {
 #endregion
 
 #region SensorManagement
-Function ConvertTo-FlatSensors {
+Function ConvertTo-FlatSensor {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSCustomObject]$Sensors
+        [PSCustomObject]$Sensor
     )
     process {
-        if ($Sensors.PSObject.Properties.Name -contains "uniqueid") {
-            # Already flattened, use as-is
-            $Sensors
-        } else {
-            $Sensors | ConvertTo-FlatObject
+        $_ | ForEach-Object {
+            if ($_.PSObject.Properties.Name -contains "uniqueid") {
+                # Already flattened, use as-is
+                $_
+            } else {
+                $_ | ConvertTo-FlatObject
+            }
         }
     }
 }
@@ -262,6 +281,8 @@ Function Add-SensorToClixml {
             if (-not [bool](Get-SensorsByUniqueID -Sensors $SensorXml -SensorToCheck $Sensor)) {
                 $SensorXml | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor | out-null
                 $nextVal += 1
+            } else {
+                Write-Warning "Sensor with UniqueID $($Sensor.UniqueID) already exists, skipping add. Use Remove-SensorFromTriggers to remove it first if you want to re-add it."
             }
         }
     }
@@ -278,7 +299,7 @@ Function Add-SensorToIgnore {
         [PSCustomObject]$Sensors
     )
     process {
-        $sensors | ConvertTo-FlatSensors | Add-SensorToClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
+        $sensors | ConvertTo-FlatSensor | Add-SensorToClixml -SensorXml (Import-SensorsToIgnore) | Export-SensorsToIgnore
     }
 }
 
@@ -289,7 +310,7 @@ Function Add-SensorToTriggers {
         [PSCustomObject]$Sensors
     )
     process {
-        $Sensors | ConvertTo-FlatSensors | ForEach-Object {
+        $Sensors | ConvertTo-FlatSensor | ForEach-Object {
             if (-not $_.TriggerGroup) {
                 Write-Warning "Add TriggerGroup to: $_ via Add-TriggerGroupToSensor"; return
             }
@@ -306,7 +327,7 @@ Function Remove-SensorFromClixml {
         [PSCustomObject]$SensorXml
     )
     process {
-        $Sensors | ConvertTo-FlatSensors | Foreach-Object {$SensorXml = Remove-SensorsByUniqueID $SensorXml $_}
+        $Sensors | ConvertTo-FlatSensor | Foreach-Object {$SensorXml = Remove-SensorsByUniqueID $SensorXml $_}
     }
     end {
         $SensorXml
@@ -421,7 +442,7 @@ $SensorTypes = [pscustomobject]@{
 # Get-AllSensorsRaw | Set-SensorFilter
 Function Get-AllSensorsRaw {
     # Ok, this isn't really _raw_ anymore. I'm adding the ID of the sensor to its returned data for an easy life.
-    New-ConbeeApiCall -Method GET -Endpoint "sensors" | Add-ApiIdToSensors
+    New-ConbeeApiCall -Method GET -Endpoint "sensors" | Add-ApiIdToSensor
 }
 
 Function Get-FitleredSensorData {
@@ -526,13 +547,56 @@ Function Show-CurrentTemperature {
 # control their state (on/off) directly. However, if they are put into a group (can be a group of one)
 # then you can. I foresee many interactions with single plugs abstracted via groups.
 
-class GroupState {
-    [pscustomobject]$Group
-    [hashtable]$State
-}
+# https://dresden-elektronik.github.io/deconz-rest-doc/endpoints/groups/#set-group-state
+# Example params:
+# {
+#   "on": true,
+#   "bri": 180,
+#   "hue": 43680,
+#   "sat": 255,
+#   "transitiontime": 10
+# }
 
-Function New-GroupState {
-    [GroupState]::new()
+# I've seen some oddities with the deconz api I need to investigate futher. Setting the brightness to 0 has inconsistent behaviour.
+# I have seen it 'turn off', but I have also seen 0 set it to a very low brightness.
+# I've also seen some bulbs get stuck at a certain brightness, and only an on/off toggle will reset them.
+# OK, I either dreamt of a world where setting bri to 0 would turn off the light, or there has been a change in the API.
+# https://dresden-elektronik.github.io/deconz-rest-doc/endpoints/groups/#set-group-state
+# I swear this used to explain that supplying a bri value would supercede the on/off state.
+# I now see two requests being sent if I supply the api with both an On and a Bri value:
+# success
+# -------
+# @{/groups/8/action/on=True}
+# @{/groups/8/action/bri=150}
+# To turn off the light, I can't send a bri and an on=false, I have to just send on=false. Good.
+#
+Function New-LightGroupState {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ValidateScript({$_.type -eq "LightGroup"})]  # From deconz API
+        [pscustomobject]$Group,
+        [switch]$Off,
+        # If these aren't explicitly defaulted to $null they'll be a 0, which is a valid value for the API.
+        # $null means "don't set this value".
+        [Nullable[int]]$Brightness     = $null,
+        [Nullable[int]]$Hue            = $null,
+        [Nullable[int]]$Saturation     = $null,
+        [Nullable[int]]$Transitiontime = $null
+    )
+    Test-NullableParamWithinRange $Brightness -Min 0 -Max 255 | out-null
+    Test-NullableParamWithinRange $Hue -Min 0 -Max 65535 | out-null
+    Test-NullableParamWithinRange $Saturation -Min 0 -Max 254 | out-null
+    Test-NullableParamWithinRange $Transitiontime -Min 1 -Max 10 | out-null
+    [PSCustomObject]@{
+        PsTypeName     = 'LightGroupState'
+        Group          = $Group
+        Bri            = $Brightness
+        On             = !$Off
+        Hue            = $Hue
+        Sat            = $Saturation
+        Transitiontime = $Transitiontime
+    }
 }
 
 Function Get-AllGroups {
@@ -548,39 +612,86 @@ Function Get-GroupByName {
     Get-AllGroups | ConvertTo-FlatObject | Where-Object {$_.Name -match $Name}
 }
 
-# $conf = New-GroupState 
-# $conf.Group = Get-GroupByName -Name "Living Room"
-# $conf.state = @{on=$True}
-# $conf | Set-GroupState 
-Function Set-GroupState {
+Function Get-GroupAttributes {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSCustomObject[]]$GroupState
+        [pscustomobject]$Group
     )
     process {
-        New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.id)/action" -Data $GroupState.State
+        New-ConbeeApiCall -Method GET -Endpoint "groups/$($Group.id)"
     }
 }
 
-# Get-GroupByName -Name "Living Room" | Set-GroupPowerState -off
-Function Set-GroupPowerState {
+# $conf = Get-GroupByName -Name "Living Room" | New-LightGroupState -Bri 200
+# $conf | Set-LightGroupState 
+Function Set-LightGroupState {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
-        [PSCustomObject[]]$Group,
-        [switch]$off
+        [PsCustomobject][PsTypeName('LightGroupState')]$GroupState
     )
-    begin {
-        $conf = New-GroupState
-        $conf.State = @{on = ($True -ne $off)}
-    }
     process {
-        $Group | ForEach-Object { $conf.Group = $_ ; $conf | Set-GroupState }
+        $data = @{}
+        Foreach ($prop in $GroupState.PSObject.Properties) {
+            if ($prop.Name -ne "Group" -and $null -ne $prop.Value) {
+                $data.Add($prop.Name.ToLower(), $prop.Value)
+            }
+        }
+        New-ConbeeApiCall -Method PUT -Endpoint "groups/$($GroupState.Group.id)/action" -Data $data
+        if ($GroupState.Transitiontime) {
+            # item (likely a light has a transistion time which is in 1/10 seconds), wait for it to complete before returning.
+            Start-Sleep -Seconds ([float]$GroupState.Transitiontime / 10)
+        }
+    }
+}
+#endregion
+
+#region LightGroup Helpers
+Function Set-LightAcknowledge {
+    # Useful if you want to acknowledge something like a button event when the lights are on.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [PsCustomobject][PsTypeName('LightGroupState')]$GroupState,
+        [int]$FlickerCount = 1,
+        [switch]$OnOffOnly
+    )
+    process {
+        if (-not $GroupState.Transitiontime) {
+            Write-Warning "No transition time set, setting to 5 (0.5 seconds) for flicker effect unless you won't see anything."
+            $GroupState.Transitiontime = 5
+        }
+        $originalBri = $GroupState.Bri
+        for ($i = 0; $i -lt $FlickerCount; $i++) {
+            if ($OnOffOnly) {
+                $GroupState.Bri = $null  # Ensure brightness isn't set, as that will override on/off.
+                $GroupState.On = $false
+                $GroupState | Set-LightGroupState
+                $GroupState.On = $true
+                $GroupState | Set-LightGroupState
+            } else {
+                # Flicker by halving brightness, then restoring it.
+                $GroupState.Bri = $GroupState.Bri / 2
+                $GroupState | Set-LightGroupState
+                $GroupState.Bri = $GroupState.Bri * 2
+                $GroupState | Set-LightGroupState
+            }
+        }
+        # These API calls are relatively fire and forget, I don't want to potentially spend ages changing state and
+        # confirming the state is correct if these can be lossy, as I just want to room to be bright again.
+        # The point of the above is to give the user some form of feedback that an action has been registered.
+        # I'd prefer that to potentially look a little odd, rather than spend ages getting it perfect.
+        # Lets make sure we are actually at the original brightness here though, as that will be annoying if not.
+        if ($originalBri -ne ($GroupState | Get-GroupAttributes).action.bri) {
+            $GroupState.Bri = $originalBri
+            $GroupState | Set-LightGroupState
+        }
     }
 }
 
 #endregion
+
 #region WebSocket helpers
 Function New-WsConnection {
     [CmdletBinding()]

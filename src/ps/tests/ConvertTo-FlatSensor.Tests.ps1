@@ -31,9 +31,9 @@ BeforeAll {
     $FlatSensor = $NonFlatSensors.1
 }
 
-Describe "ConvertTo-FlatSensors" {
+Describe "ConvertTo-FlatSensor" {
     It "should un-nest pscustomobjects to an array of invidiual sensors" {
-        $result = $NonFlatSensors | ConvertTo-FlatSensors
+        $result = $NonFlatSensors | ConvertTo-FlatSensor
         $result | Should -Not -BeNullOrEmpty
         $result | Should -BeOfType [PSCustomObject]
         $result.Count | Should -Be 2
@@ -49,7 +49,7 @@ Describe "ConvertTo-FlatSensors" {
         $result[1].state.presence | Should -Be $true
     }
     It "Should leave an already flat sensor alone" {
-        $result = $FlatSensor | ConvertTo-FlatSensors
+        $result = $FlatSensor | ConvertTo-FlatSensor
         $result | Should -Not -BeNullOrEmpty
         $result | Should -BeOfType [PSCustomObject]
         $result.ApiId | Should -Be 1
