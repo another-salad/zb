@@ -281,6 +281,8 @@ Function Add-SensorToClixml {
             if (-not [bool](Get-SensorsByUniqueID -Sensors $SensorXml -SensorToCheck $Sensor)) {
                 $SensorXml | Add-Member -Type NoteProperty -Name $nextVal -Value $Sensor | out-null
                 $nextVal += 1
+            } else {
+                Write-Warning "Sensor with UniqueID $($Sensor.UniqueID) already exists, skipping add. Use Remove-SensorFromTriggers to remove it first if you want to re-add it."
             }
         }
     }

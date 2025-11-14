@@ -4,7 +4,7 @@
 param(
     [string]$Hostname,
     [Switch]$Testing,
-    [int]$MaximumLightBrightness = 250  # Max brightness to set lights to when triggered. Default is 200 (out of 254).
+    [int]$MaximumLightBrightness = 255  # Max brightness to set lights to when triggered.
 )
 
 $InformationPreference = "Continue"
