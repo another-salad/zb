@@ -43,12 +43,6 @@ try {
         if ($CurrentSensor) {
         # if ($data.state.ButtonEvent -or $data.state.Presence) {
             $daylight = Get-DaylightSensors -IgnoreFilter # Gets daylight state from the API
-            # These are the events we care about, lets try and build up the group and light information now
-            $CurrentSensor = $triggerSensors | Where-Object { $_.apiid -eq $data.id }
-            if (!$CurrentSensor) {
-                Write-Warning "Received button event for unknown sensor id $($data.id)"
-                continue
-            }
             # NOTE: Think about multiple groups per sensor?
             $Group = Get-GroupByName -Name $CurrentSensor.TriggerGroup  # Gets the group state from the API
             $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $OnOffOnlyGroups) {$False} else {$True}) -Force
