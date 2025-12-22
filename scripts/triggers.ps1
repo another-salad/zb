@@ -56,6 +56,19 @@ try {
                 $GroupSensors = $triggerSensors | Where-Object { $TriggerGroup -in $_.TriggerGroup }
                 $IgnoreDaylightSetting = Test-AnySensorProperty -Sensors $GroupSensors -Predicate { $_.IgnoreDaylight }
                 if ($data.state.ButtonEvent) {
+                    # Super speedy check if there are any presence sensors in our group before doing too much other work.
+                    if (!($GroupSensors | where type -eq ZHAPresence)) {
+                        Write-Host "No presence sensors associated with group $($Group.name). Button press authoritative for sensor: $($CurrentSensor.Name). No state locking required."
+                        if ($Group.state.any_on) {
+                            $LightGroupState.Bri = $null
+                            $LightGroupState.On = $false
+                        } else {
+                            $LightGroupState.On = $true
+                        }
+                        $LightGroupState | Set-LightGroupState
+                        continue
+                    }
+
                     Write-Host "Button event: $($data.state.buttonevent)"
                     $buttonState = [int]$data.state.buttonevent
                     if (-not $GroupStateLock.ContainsKey($Group.id)) {
@@ -67,7 +80,6 @@ try {
                         if ($Group.state.any_on) {  # Old value prior to button press.
                             # Lights were on prior, so we should acknowledge that a lock has been set.
                             $LightGroupState | Set-LightAcknowledge -OnOffOnly:(!$Group.SupportsBrightness)
-                            
                         }
                     } else {
                         $GroupStateLock.Remove($Group.id)
