@@ -1,4 +1,6 @@
-﻿namespace GroupEvent {
+﻿using System.Linq.Expressions;
+
+namespace GroupEvent {
 
     public class GroupLockDTO {
         public int GroupId { get; set; }
@@ -10,19 +12,23 @@
         // non‑nullable – we initialise it to DateTime.Now by default
         public DateTime ReleaseTime { get; set; } = DateTime.Now;
 
+        public PowerState PowerState { get; set; }
+
         public GroupLockDTO(){}
 
-        public GroupLockDTO(int groupId, string? groupName, int requestType, DateTime releaseTime) {
+        public GroupLockDTO(int groupId, string? groupName, int requestType, PowerState powerState, DateTime releaseTime) {
             GroupId     = groupId;
             GroupName   = groupName;
             RequestType = requestType;
+            PowerState = powerState;
             ReleaseTime = releaseTime;
         }
 
-        public GroupLockDTO(int groupId, string? groupName, int requestType) {
+        public GroupLockDTO(int groupId, string? groupName, int requestType, PowerState powerState) {
             GroupId = groupId;
             GroupName = groupName;
             RequestType = requestType;
+            PowerState = powerState;
         }
     }
 
@@ -40,27 +46,55 @@
         }
         public GroupLockDTOWithOffset(){}
 
-        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerEventOffsetDto? powerEventOffset) : base(groupId, groupName, requestType) {
+        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerState powerState, PowerEventOffsetDto? powerEventOffset) : base(groupId, groupName, requestType, powerState) {
             PowerEventOffset = powerEventOffset;
             ReleaseTime = base.ReleaseTime;
         }
 
-        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerEventOffsetDto? powerEventOffset, DateTime releaseTime) : base(groupId, groupName, requestType, releaseTime) {
+        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerState powerState, PowerEventOffsetDto? powerEventOffset, DateTime releaseTime) : base(groupId, groupName, requestType, powerState, releaseTime) {
             PowerEventOffset = powerEventOffset;
             ReleaseTime = releaseTime;
         }
     }
 
-    public class GroupPowerEventDto {
-        public int GroupId { get; set; }
-        public string? GroupName { get; set; }
-        public int PowerEventType { get; set; }
-        public DateTime EventTime { get; set; }
-    }
-
     public class PowerEventOffsetDto {
         public string? Name { get; set; }
         public TimeSpan Offset { get; set; }
+    }
+
+    public class PendingGroupPowerEventLogDTO {
+        public int GroupId { get; set; }
+        public string? GroupName { get; set; }
+        public PowerState PowerState { get; set; }
+        public DateTime? ReleaseTime { get; set; }
+
+        public PendingGroupPowerEventLogDTO(){}
+
+        public PendingGroupPowerEventLogDTO(int groupId, string? groupName, PowerState powerState, DateTime? releaseTime) {
+            GroupId = groupId;
+            GroupName = groupName;
+            PowerState = powerState;
+            ReleaseTime = releaseTime;
+        }
+
+        public PendingGroupPowerEventLogDTO(GroupLockDTO groupLockDto) {
+            GroupId = groupLockDto.GroupId;
+            GroupName = groupLockDto.GroupName;
+            PowerState = groupLockDto.PowerState;
+            ReleaseTime = groupLockDto.ReleaseTime;
+        }
+
+    }
+
+    public class CompletedGroupPowerEventLogDTO: PendingGroupPowerEventLogDTO {
+
+        public DateTime EventRequestTime { get; set;}
+        
+        public CompletedGroupPowerEventLogDTO() {}
+
+        public CompletedGroupPowerEventLogDTO(GroupPowerEventLog groupPowerEventLog) : base(groupPowerEventLog.GroupId, groupPowerEventLog.GroupName, groupPowerEventLog.PowerState, groupPowerEventLog.ReleaseTime) {
+            EventRequestTime = groupPowerEventLog.EventRequestTime;
+        }
     }
 
     public class GroupManager {
@@ -70,13 +104,23 @@
             _context = new GroupEventsContext();
         }
 
+        private static readonly Expression<Func<GroupLock, GroupLockDTO>> _toGlDto = 
+            gl => new GroupLockDTO {
+                GroupId     = gl.GroupId,
+                GroupName   = gl.GroupName,
+                RequestType = gl.RequestType,
+                PowerState  = gl.PowerState,
+                ReleaseTime = gl.ReleaseTime
+            };
+
         // Direct call without a pre-determined offset. The offsets are useful for automated runs as we will be dealing with
         // button event types. Having these map directly to pre-determined offsets will mean no random hardcoded offests in
         // client code.
-        public void SetGroupLock(int groupId, string groupName, int requestType, DateTime? releaseTime) {
+        public void SetGroupLock(int groupId, string groupName, int requestType, PowerState powerState, DateTime? releaseTime) {
             GroupLock? existingLock = _context.GroupLock.FirstOrDefault(gl => gl.GroupId == groupId);
             if (existingLock != null) {
                 existingLock.RequestType = requestType;
+                existingLock.PowerState = powerState;
                 existingLock.ReleaseTime = releaseTime ?? DateTime.Now;
                 _context.GroupLock.Update(existingLock);
             } else {
@@ -84,6 +128,7 @@
                     GroupId     = groupId,
                     GroupName   = groupName,
                     RequestType = requestType,
+                    PowerState  = powerState,
                     ReleaseTime = releaseTime ?? DateTime.Now
                 };
                 _context.GroupLock.Add(groupLock);
@@ -93,11 +138,11 @@
 
         // Dto to hand but not _offset aware_
         public void SetGroupLock(GroupLockDTO groupLockDto) {
-            SetGroupLock(groupLockDto.GroupId, groupLockDto.GroupName!, groupLockDto.RequestType, groupLockDto.ReleaseTime);   
+            SetGroupLock(groupLockDto.GroupId, groupLockDto.GroupName!, groupLockDto.RequestType, groupLockDto.PowerState, groupLockDto.ReleaseTime);   
         }
 
         public void SetGroupLock(GroupLockDTOWithOffset groupLockDto) {
-            SetGroupLock(groupLockDto.GroupId, groupLockDto.GroupName!, groupLockDto.RequestType, groupLockDto.ReleaseTime);   
+            SetGroupLock(groupLockDto.GroupId, groupLockDto.GroupName!, groupLockDto.RequestType, groupLockDto.PowerState, groupLockDto.ReleaseTime);   
         }
 
         public void RemoveGroupLock(int groupId) {
@@ -117,13 +162,7 @@
         }
 
         public GroupLockDTO? GetGroupLock(int groupId) {
-            GroupLock? groupLock = _context.GroupLock.FirstOrDefault(gl => gl.GroupId == groupId);
-            return groupLock == null ? null : new GroupLockDTO {
-                GroupId     = groupLock.GroupId,
-                GroupName   = groupLock.GroupName,
-                RequestType = groupLock.RequestType,
-                ReleaseTime = groupLock.ReleaseTime
-            };
+            return _context.GroupLock.Where(gl => gl.GroupId == groupId).Select(_toGlDto).FirstOrDefault();
         }
 
         // Potentially an odd one, but I want the abilty to see if the DTO in my hand is stale
@@ -136,17 +175,12 @@
         }
 
         public List<GroupLockDTO?> GetGroupLock(){
-            return [.. _context.GroupLock.Select(gl => new GroupLockDTO {
-                GroupId     = gl.GroupId,
-                GroupName   = gl.GroupName,
-                RequestType = gl.RequestType,
-                ReleaseTime = gl.ReleaseTime
-            })];
+            return [.. _context.GroupLock.Select(_toGlDto)];
         }
 
         public List<PowerEventOffsetDto> GetPowerEventOffset() {
             return [.. _context.PowerEventOffset.Select(pet => new PowerEventOffsetDto {
-                Name = pet.Name,
+                Name   = pet.Name,
                 Offset = pet.OffSet
             })];
         }
@@ -166,7 +200,7 @@
                 _context.PowerEventOffset.Update(existingPowerEventTime);
             } else {
                 PowerEventOffset powerEventTime = new() {
-                    Name = name,
+                    Name   = name,
                     OffSet = offset
                 };
                 _context.PowerEventOffset.Add(powerEventTime);
@@ -188,6 +222,21 @@
 
         public void RemovePowerEventOffset(PowerEventOffsetDto powerEventOffsetDto) {
             RemovePowerEventOffset(powerEventOffsetDto.Name!);
+        }
+
+        public void NewGroupPowerEventLog(int groupId, string? groupName, PowerState powerState, DateTime? releaseTime) {
+            GroupPowerEventLog groupPowerEventLog = new() {
+                GroupId     = groupId,
+                GroupName   = groupName,
+                PowerState  = powerState,
+                ReleaseTime = releaseTime
+            };
+            _context.GroupPowerEventLog.Add(groupPowerEventLog);
+            _context.SaveChanges();
+        }
+
+        public void NewGroupPowerEventLog(PendingGroupPowerEventLogDTO pendingGroupPowerEvent) {
+            NewGroupPowerEventLog(pendingGroupPowerEvent.GroupId, pendingGroupPowerEvent.GroupName, pendingGroupPowerEvent.PowerState, pendingGroupPowerEvent.ReleaseTime);
         }
 
         public void ClearChangeTracker() {

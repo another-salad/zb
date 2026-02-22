@@ -3,6 +3,7 @@ using System;
 using GroupEvent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace groupevent.Migrations
 {
     [DbContext(typeof(GroupEventsContext))]
-    partial class GroupEventsContextModelSnapshot : ModelSnapshot
+    [Migration("20260221133239_GroupLog")]
+    partial class GroupLog
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.1");
@@ -29,9 +32,6 @@ namespace groupevent.Migrations
                     b.Property<string>("GroupName")
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("PowerState")
-                        .HasColumnType("INTEGER");
-
                     b.Property<DateTime>("ReleaseTime")
                         .HasColumnType("TEXT");
 
@@ -43,7 +43,8 @@ namespace groupevent.Migrations
                     b.HasIndex("GroupId")
                         .IsUnique();
 
-                    b.HasIndex("GroupName");
+                    b.HasIndex("GroupName")
+                        .IsUnique();
 
                     b.ToTable("GroupLock");
                 });
