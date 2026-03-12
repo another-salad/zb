@@ -258,6 +258,13 @@ namespace GroupEvent {
             _context.SaveChanges();
         }
 
+        public void RemoveGroupPowerEventLog(List<CompletedGroupPowerEventLogDTO> groupPowerEventLogDtos) {
+            var targetKeys = groupPowerEventLogDtos.Select(dto => new { dto.GroupId, dto.EventRequestTime }).ToHashSet();
+            // I'm likely holding this wrong but trying to query groupPowerEventLogDtos within the scope of the RemoveRange call was causing LINQ expression translation exceptions.
+            _context.GroupPowerEventLog.RemoveRange(_context.GroupPowerEventLog.Where(gpe => targetKeys.Contains(new { gpe.GroupId, gpe.EventRequestTime })).ToList());
+            _context.SaveChanges();
+        }
+
         public void ClearChangeTracker() {
             // If a prior operation failed, the change tracker may have stale entries.
             // I'd rather not swallow exceptions and decide what YOU want to see or do.
