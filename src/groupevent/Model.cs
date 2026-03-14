@@ -1,20 +1,16 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
 
 namespace GroupEvent {
 
-    public class GroupEventsContext : DbContext {
+    public class GroupEventsContext(string? dbPath = null) : DbContext {
+        public string DbPath { get; set; } = dbPath ?? Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "groupevent.db");
+
         public DbSet<GroupLock> GroupLock { get; set; }
 
         public DbSet<GroupPowerEventLog> GroupPowerEventLog { get; set; }
 
         public DbSet<PowerEventOffset> PowerEventOffset { get; set; }
-
-        public string DbPath { get; private set;}
-
-        public GroupEventsContext() {
-            var path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            DbPath = Path.Join(path, "groupevent.db");
-        }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
             optionsBuilder.UseSqlite($"Data Source={DbPath}");
@@ -35,8 +31,11 @@ namespace GroupEvent {
                 .Property(gpe => gpe.EventRequestTime)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .ValueGeneratedOnAdd();
-            }
 
+            modelBuilder.Entity<PowerEventOffset>()
+                .HasIndex(peo => peo.Name)
+                .IsUnique();
+            }
     }
 
     public enum PowerState {
@@ -69,6 +68,12 @@ namespace GroupEvent {
         public int Id { get; private set; }
         public string? Name { get; set; }
         public TimeSpan OffSet { get; set; }
+    }
+
+    public class GroupEventsContextFactory : IDesignTimeDbContextFactory<GroupEventsContext> {
+        public GroupEventsContext CreateDbContext(string[] args) {
+            return new GroupEventsContext(null);
+        }
     }
 
 }

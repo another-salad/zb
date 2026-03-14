@@ -1,4 +1,5 @@
 ﻿using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 
 namespace GroupEvent {
 
@@ -100,9 +101,12 @@ namespace GroupEvent {
     public class GroupManager {
         private readonly GroupEventsContext _context;
 
-        public GroupManager() {
-            _context = new GroupEventsContext();
+        public GroupManager(string? dbPath = null) {
+            _context = new GroupEventsContext(dbPath);
+            _context.Database.Migrate();
         }
+
+        public string DataBasePath => _context.DbPath;
 
         private static readonly Expression<Func<GroupLock, GroupLockDTO>> _toGlDto = 
             gl => new GroupLockDTO {
