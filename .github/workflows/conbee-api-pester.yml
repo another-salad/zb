@@ -6,13 +6,13 @@ on:
     paths:
       - 'src/ps/conbee-api-client/**'
       - 'src/ps/tests/**'
-      - '.github/workflows/conbee-api-pester.yml'
+      - '.github/workflows/**'
   pull_request:
     branches: [ main ]
     paths:
       - 'src/ps/conbee-api-client/**'
       - 'src/ps/tests/**'
-      - '.github/workflows/conbee-api-pester.yml'
+      - '.github/workflows/**'
 
 jobs:
   test:
