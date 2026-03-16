@@ -17,6 +17,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.3" />
   </ItemGroup>
   <!-- Hideous hackery to make sure the runtime sqlite3.so file is in the expected directory, only relevant when importing into pwsh. -->
   <!-- .net 10 is only working on preview versions of pwsh currently, this all feels like early adopter sadness. -->

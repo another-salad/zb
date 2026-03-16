@@ -1,5 +1,6 @@
 ﻿using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace GroupEvent {
 
@@ -61,6 +62,13 @@ namespace GroupEvent {
     public class PowerEventOffsetDto {
         public string? Name { get; set; }
         public TimeSpan Offset { get; set; }
+
+        public PowerEventOffsetDto(string? name, TimeSpan offset) {
+            Name = name;
+            Offset = offset;
+        }
+
+        public PowerEventOffsetDto() {}
     }
 
     public class PendingGroupPowerEventLogDTO {
@@ -101,9 +109,13 @@ namespace GroupEvent {
     public class GroupManager {
         private readonly GroupEventsContext _context;
 
+        private readonly ILogger logger;
+
         public GroupManager(string? dbPath = null) {
             _context = new GroupEventsContext(dbPath);
             _context.Database.Migrate();
+            using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddConsole());
+            logger = factory.CreateLogger<GroupManager>();
         }
 
         public string DataBasePath => _context.DbPath;
@@ -204,20 +216,34 @@ namespace GroupEvent {
         public void NewPowerEventOffset(string name, TimeSpan offset) {
             PowerEventOffset? existingPowerEventTime = _context.PowerEventOffset.FirstOrDefault(pet => pet.Name == name);
             if (existingPowerEventTime != null) {
-                existingPowerEventTime.OffSet = offset;
-                _context.PowerEventOffset.Update(existingPowerEventTime);
+                logger.LogWarning("A PowerEventOffset with the name {Name} already exists. Use SetPowerEventOffSet to update the offset value.", name);
             } else {
                 PowerEventOffset powerEventTime = new() {
                     Name   = name,
                     OffSet = offset
                 };
                 _context.PowerEventOffset.Add(powerEventTime);
+                _context.SaveChanges();
             }
-            _context.SaveChanges();
         }
 
         public void NewPowerEventOffset(PowerEventOffsetDto powerEventOffsetDto) {
             NewPowerEventOffset(powerEventOffsetDto.Name!, powerEventOffsetDto.Offset);
+        }
+
+        public void SetPowerEventOffset(string name, TimeSpan offset) {
+            PowerEventOffset? existingPowerEventTime = _context.PowerEventOffset.FirstOrDefault(pet => pet.Name == name);
+            if (existingPowerEventTime != null) {
+                existingPowerEventTime.OffSet = offset;
+                _context.PowerEventOffset.Update(existingPowerEventTime);
+                _context.SaveChanges();
+            } else {
+                logger.LogWarning("No PowerEventOffset with the name {Name} exists. Use NewPowerEventOffSet to create a new entry.", name);
+            }
+        }
+
+        public void SetPowerEventOffset(PowerEventOffsetDto powerEventOffsetDto) {
+            SetPowerEventOffset(powerEventOffsetDto.Name!, powerEventOffsetDto.Offset);
         }
 
         public void RemovePowerEventOffset(string name) {
