@@ -696,8 +696,11 @@ Function Set-LightAcknowledge {
 Function New-WsConnection {
     [CmdletBinding()]
     param(
-        # Conbee API defaults to port 443 for ws connections, but can be configured to a different port.
-        [int]$Port = 443
+        # Conbee API defaults to port ~443~ 80 for ws connections, but can be configured to a different port.
+        # https://github.com/dresden-elektronik/deconz-rest-plugin/pull/8381 made it into release 2.32.5 and changed the
+        # default port to the same as the rest api http port. I hope nobody thinks shoving a tls cert into deconz means its
+        # safe to expose to the internet.
+        [int]$Port = 80
     )
     Add-Type -AssemblyName System.Net.WebSockets.Client
     $uri = "ws://$($script:ConbeeHostName):$Port"
