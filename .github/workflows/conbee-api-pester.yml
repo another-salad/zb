@@ -1,10 +1,18 @@
-name: Pester Tests
+name: Conbee API Client Pester Tests
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'src/ps/conbee-api-client/**'
+      - 'src/ps/tests/**'
+      - '.github/workflows/conbee-api-pester.yml'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/ps/conbee-api-client/**'
+      - 'src/ps/tests/**'
+      - '.github/workflows/conbee-api-pester.yml'
 
 jobs:
   test:
@@ -12,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Powershell deps
         shell: pwsh
