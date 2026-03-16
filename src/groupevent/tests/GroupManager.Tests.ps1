@@ -20,7 +20,24 @@ BeforeAll {
 
 }
 
-Describe "GroupManager Tests" {
+Describe "DB-less GroupManager tests" {
+
+    Context "GroupLockDTO" {
+        It "GroupLockDTO defaults to UTC ReleaseTime" {
+            $dto = [GroupEvent.GroupLockDTO]::new()
+            $dto.ReleaseTime.Kind | Should -Be 'Utc'
+        }
+
+        It "GroupLockDTO user provided times are converted to UTC" {
+            $releaseTime = (Get-Date).AddHours(1)
+            $dto = [GroupEvent.GroupLockDTO]::new(1, "Test Group", 0, [GroupEvent.PowerState]::On, $releaseTime)
+            $dto.ReleaseTime.Kind | Should -Be 'Utc'
+            $dto.ReleaseTime | Should -Be $releaseTime.ToUniversalTime()
+        }
+    }
+}
+
+Describe "GroupManager DataBase Tests" {
     BeforeEach {
         $DbTestDir = join-path $TestsTempDir "$((New-Guid).ToString('N'))"
         New-Item -Path $DbTestDir -ItemType Directory
@@ -29,7 +46,7 @@ Describe "GroupManager Tests" {
         $manager = [GroupEvent.GroupManager]::new($TestDataBase)
     }
 
-    Context "PowerEventOffset Management" {
+    Context "PowerEventOffset" {
 
         BeforeEach {
             $manager.NewPowerEventOffset('test-offset', (New-TimeSpan -Hours 2))
@@ -71,6 +88,5 @@ Describe "GroupManager Tests" {
             $result = $manager.GetPowerEventOffset('test-offset')
             $result | Should -Be $null
         }
-
     }
 }

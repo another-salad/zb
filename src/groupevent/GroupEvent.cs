@@ -11,10 +11,14 @@ namespace GroupEvent {
 
         public int RequestType { get; set; }
 
-        // non‑nullable – we initialise it to DateTime.UtcNow by default
-        public DateTime ReleaseTime { get; set; } = DateTime.UtcNow;
-
         public PowerState PowerState { get; set; }
+
+        private DateTime _releaseTime = DateTime.UtcNow;
+
+        public DateTime ReleaseTime {
+            get => _releaseTime;
+            set => _releaseTime = value.ToUniversalTime();
+        }
 
         public GroupLockDTO(){}
 
@@ -36,7 +40,7 @@ namespace GroupEvent {
 
     // For when we have the PowerEventOffset object to hand.
     public class GroupLockDTOWithOffset : GroupLockDTO {
-        public PowerEventOffsetDto? PowerEventOffset { get; set; }
+        public PowerEventOffsetDto PowerEventOffset { get; set; }
 
         public new DateTime ReleaseTime {
             set {
@@ -46,14 +50,13 @@ namespace GroupEvent {
                 return base.ReleaseTime;
             }
         }
-        public GroupLockDTOWithOffset(){}
 
-        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerState powerState, PowerEventOffsetDto? powerEventOffset) : base(groupId, groupName, requestType, powerState) {
+        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerState powerState, PowerEventOffsetDto powerEventOffset) : base(groupId, groupName, requestType, powerState) {
             PowerEventOffset = powerEventOffset;
             ReleaseTime      = base.ReleaseTime;
         }
 
-        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerState powerState, PowerEventOffsetDto? powerEventOffset, DateTime releaseTime) : base(groupId, groupName, requestType, powerState, releaseTime) {
+        public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerState powerState, PowerEventOffsetDto powerEventOffset, DateTime releaseTime) : base(groupId, groupName, requestType, powerState, releaseTime) {
             PowerEventOffset = powerEventOffset;
             ReleaseTime      = releaseTime;
         }
@@ -136,12 +139,13 @@ namespace GroupEvent {
         // Direct call without a pre-determined offset. The offsets are useful for automated runs as we will be dealing with
         // button event types. Having these map directly to pre-determined offsets will mean no random hardcoded offests in
         // client code.
-        public void SetGroupLock(int groupId, string groupName, int requestType, PowerState powerState, DateTime? releaseTime) {
+        public void SetGroupLock(int groupId, string groupName, int requestType, PowerState powerState, DateTime releaseTime) {
+            DateTime utcReleaseTime = releaseTime.ToUniversalTime();
             GroupLock? existingLock = _context.GroupLock.FirstOrDefault(gl => gl.GroupId == groupId);
             if (existingLock != null) {
                 existingLock.RequestType = requestType;
                 existingLock.PowerState = powerState;
-                existingLock.ReleaseTime = releaseTime ?? DateTime.UtcNow;
+                existingLock.ReleaseTime = utcReleaseTime;
                 _context.GroupLock.Update(existingLock);
             } else {
                 GroupLock groupLock = new() {
@@ -149,7 +153,7 @@ namespace GroupEvent {
                     GroupName   = groupName,
                     RequestType = requestType,
                     PowerState  = powerState,
-                    ReleaseTime = releaseTime ?? DateTime.UtcNow
+                    ReleaseTime = utcReleaseTime
                 };
                 _context.GroupLock.Add(groupLock);
             }
