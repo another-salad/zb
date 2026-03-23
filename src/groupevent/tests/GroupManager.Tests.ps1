@@ -88,4 +88,23 @@ Describe "GroupManager DataBase Tests" {
             $result | Should -Be $null
         }
     }
+
+    Context "GroupLock" {
+
+        It "should set and get group locks with NewGroupLock and GetGroupLock with DTOs" {
+            $groupLockDto = [GroupEvent.GroupLockDTO]::new(1,"test-group",100,[GroupEvent.PowerState]::On)
+            $manager.NewGroupLock($groupLockDto)
+            $res = $manager.GetGroupLock($groupLockDto)
+            $res.GroupId | should -Be 1
+            $res.GroupName | should -Be "test-group"
+            $res.RequestType | should -Be 100
+            $res.PowerState | should -Be ([GroupEvent.PowerState]::On)
+            # I'm only going to test this once, as it feels like I'm validating the runtime a little bit here.
+            # If the below assertion falls over, the likely culprit is me changing the default behaviour or forgetting about UTC
+            $currentDateTime = Get-Date -AsUTC
+            # The seconds will differ so lets just ignore them
+            $res.ReleaseTime.ToShortTimeString() | Should -Be $currentDateTime.ToShortTimeString()
+            $res.ReleaseTime.ToShortDateString() | Should -Be $currentDateTime.ToShortDateString()
+        }
+    }
 }

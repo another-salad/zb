@@ -132,28 +132,45 @@ namespace GroupEvent {
             return (from ?? DateTime.MinValue, to ?? DateTime.UtcNow);
         }
 
-        // Direct call without a pre-determined offset. The offsets are useful for automated runs as we will be dealing with
-        // button event types. Having these map directly to pre-determined offsets will mean no random hardcoded offests in
-        // client code.
-        public void SetGroupLock(int groupId, string groupName, int requestType, PowerState powerState, DateTime releaseTime) {
-            DateTime utcReleaseTime = releaseTime.ToUniversalTime();
+        public void NewGroupLock(int groupId, string groupName, int requestType, PowerState powerState, DateTime releaseTime) {
             GroupLock? existingLock = _context.GroupLock.FirstOrDefault(gl => gl.GroupId == groupId);
             if (existingLock != null) {
-                existingLock.RequestType = requestType;
-                existingLock.PowerState = powerState;
-                existingLock.ReleaseTime = utcReleaseTime;
-                _context.GroupLock.Update(existingLock);
+                logger.LogWarning("GroupLock with id: {groupId} found. Use SetGroupLock to update an existing lock.", groupId);
             } else {
                 GroupLock groupLock = new() {
                     GroupId     = groupId,
                     GroupName   = groupName,
                     RequestType = requestType,
                     PowerState  = powerState,
-                    ReleaseTime = utcReleaseTime
+                    ReleaseTime = releaseTime.ToUniversalTime()
                 };
                 _context.GroupLock.Add(groupLock);
+                _context.SaveChanges();
             }
-            _context.SaveChanges();
+        }
+
+        public void NewGroupLock(GroupLockDTO groupLockDto) {
+            NewGroupLock(groupLockDto.GroupId, groupLockDto.GroupName!, groupLockDto.RequestType, groupLockDto.PowerState, groupLockDto.ReleaseTime);   
+        }
+
+        public void NewGroupLock(GroupLockDTOWithOffset groupLockDto) {
+            NewGroupLock(groupLockDto.GroupId, groupLockDto.GroupName!, groupLockDto.RequestType, groupLockDto.PowerState, groupLockDto.ReleaseTime);   
+        }
+
+        // Direct call without a pre-determined offset. The offsets are useful for automated runs as we will be dealing with
+        // button event types. Having these map directly to pre-determined offsets will mean no random hardcoded offests in
+        // client code.
+        public void SetGroupLock(int groupId, string groupName, int requestType, PowerState powerState, DateTime releaseTime) {
+            GroupLock? existingLock = _context.GroupLock.FirstOrDefault(gl => gl.GroupId == groupId);
+            if (existingLock != null) {
+                existingLock.RequestType = requestType;
+                existingLock.PowerState = powerState;
+                existingLock.ReleaseTime = releaseTime.ToUniversalTime();
+                _context.GroupLock.Update(existingLock);
+                _context.SaveChanges();
+            } else {
+                logger.LogWarning("No GroupLock with id: {groupId} found. Use NewGroupLock for a new lock.", groupId);
+            }
         }
 
         // Dto to hand but not _offset aware_
@@ -181,6 +198,12 @@ namespace GroupEvent {
             RemoveGroupLock(groupLockDto.GroupId);
         }
 
+        public void RemoveGroupLock(List<GroupLockDTO> groupLockDTOs) {
+            var ids = groupLockDTOs.Select(dto => dto.GroupId).ToList();
+            _context.GroupLock.RemoveRange(_context.GroupLock.Where(gl => ids.Contains(gl.GroupId)));
+            _context.SaveChanges();
+        }
+
         public GroupLockDTO? GetGroupLock(int groupId) {
             return _context.GroupLock.Where(gl => gl.GroupId == groupId).Select(_toGlDto).FirstOrDefault();
         }
@@ -190,6 +213,8 @@ namespace GroupEvent {
             return GetGroupLock(groupLockDTO.GroupId);
         }
 
+        // May feel a little odd to get a GroupLockDTO (i.e. no offset) back, but this is due to a GroupLockDTOWithOffset only really
+        // existing at the construction phase in the client. Its a small convenience wrapper for generating the release time.
         public GroupLockDTO? GetGroupLock(GroupLockDTOWithOffset groupLockDTO){
             return GetGroupLock(groupLockDTO.GroupId);
         }
