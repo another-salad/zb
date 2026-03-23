@@ -7,16 +7,21 @@ namespace groupevent.Migrations
     /// <inheritdoc />
     public partial class BetterStatePlease : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-
+            migrationBuilder.AddColumn<int>(
+                name: "PowerState",
+                table: "GroupLock",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: 0);
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-
+            migrationBuilder.DropColumn(
+                name: "PowerState",
+                table: "GroupLock");
         }
     }
 }
