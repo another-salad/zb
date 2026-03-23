@@ -1,7 +1,7 @@
 BeforeAll {
     $VerbosePreference = "Continue"
     if ($PSVersionTable.PSVersion -le [System.Management.Automation.SemanticVersion]"7.5") {
-        Throw "Must be run in Powershell 7.6+ (try pwsh-preview maybe)"
+        Throw "Current PowerShell version: $($PSVersionTable.PSVersion). GroupEvent tests require PowerShell 7.6 or higher. (try pwsh-preview maybe)"
     }
 
     $projectDir = Join-Path $PSScriptRoot '..'
