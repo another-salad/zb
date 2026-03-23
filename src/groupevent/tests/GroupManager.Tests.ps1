@@ -4,7 +4,6 @@ BeforeAll {
         Throw "Must be run in Powershell 7.6+ (try pwsh-preview maybe)"
     }
 
-    # This will need a dotnet 10 sdk, and pwsh 7.6+. I bet this will be a pain in GH actions. Worry about this later.
     $projectDir = Join-Path $PSScriptRoot '..'
     Push-Location $projectDir
     & ([scriptBlock]::Create("dotnet clean; dotnet build -c Debug"))

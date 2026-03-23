@@ -43,12 +43,8 @@ namespace GroupEvent {
         public PowerEventOffsetDto PowerEventOffset { get; set; }
 
         public new DateTime ReleaseTime {
-            set {
-                base.ReleaseTime = PowerEventOffset != null ? base.ReleaseTime.Add(PowerEventOffset.Offset) : value;
-            }
-            get {
-                return base.ReleaseTime;
-            }
+            get => base.ReleaseTime;
+            set => base.ReleaseTime = PowerEventOffset != null ? base.ReleaseTime.Add(PowerEventOffset.Offset) : value;
         }
 
         public GroupLockDTOWithOffset(int groupId, string? groupName, int requestType, PowerState powerState, PowerEventOffsetDto powerEventOffset) : base(groupId, groupName, requestType, powerState) {
