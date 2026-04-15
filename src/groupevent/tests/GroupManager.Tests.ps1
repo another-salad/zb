@@ -120,7 +120,7 @@ Describe "GroupManager DataBase Tests" -Tag "DB" {
             $res.PowerState | should -Be ([GroupEvent.PowerState]::Off)
         }
 
-        It "should remove group locks with RemoveGroupLock" {
+        It "should remove group lock with RemoveGroupLock" {
             $groupLockDto = [GroupEvent.GroupLockDTO]::new(1,"test-group",100,[GroupEvent.PowerState]::On)
             $manager.NewGroupLock($groupLockDto)
 
@@ -140,6 +140,22 @@ Describe "GroupManager DataBase Tests" -Tag "DB" {
             $manager.GetGroupLock() | Should -HaveCount 5
             $manager.RemoveGroupLock($ToRemove)
             $manager.GetGroupLock() | Should -BeNullOrEmpty
+        }
+
+        It "should only remove provided group locks with RemoveGroupLock" {
+            foreach ($i in 1..5) {
+                $manager.NewGroupLock([GroupEvent.GroupLockDTO]::new($i,"test-group-$i",100,[GroupEvent.PowerState]::On))
+            }
+            $lockedGroups = $manager.GetGroupLock()
+            $lockedGroups | Should -HaveCount 5
+            $manager.RemoveGroupLock(($lockedGroups | Sort-Object GroupId |select-object -First 3))
+            $remainingLocks = $manager.GetGroupLock()
+            $remainingLocks | Should -HaveCount 2
+            $remainingLocks.GroupId | Should -Not -Contain 1
+            $remainingLocks.GroupId | Should -Not -Contain 2
+            $remainingLocks.GroupId | Should -Not -Contain 3
+            $remainingLocks.GroupId | Should -Contain 4
+            $remainingLocks.GroupId | Should -Contain 5
         }
 
         It "NewGroupLock should create a new group lock with GroupLockDTOWithOffset" {
