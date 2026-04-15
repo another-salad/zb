@@ -82,10 +82,17 @@ namespace GroupEvent {
             GroupId     = groupId;
             GroupName   = groupName;
             PowerState  = powerState;
-            ReleaseTime = releaseTime;
+            ReleaseTime = releaseTime?.ToUniversalTime();
         }
 
         public PendingGroupPowerEventLogDTO(GroupLockDTO groupLockDto) {
+            GroupId     = groupLockDto.GroupId;
+            GroupName   = groupLockDto.GroupName;
+            PowerState  = groupLockDto.PowerState;
+            ReleaseTime = groupLockDto.ReleaseTime;
+        }
+
+        public PendingGroupPowerEventLogDTO(GroupLockDTOWithOffset groupLockDto) {
             GroupId     = groupLockDto.GroupId;
             GroupName   = groupLockDto.GroupName;
             PowerState  = groupLockDto.PowerState;
@@ -96,12 +103,12 @@ namespace GroupEvent {
 
     public class CompletedGroupPowerEventLogDTO: PendingGroupPowerEventLogDTO {
 
-        public DateTime EventRequestTime { get; set;}
+        public DateTime EventRequestTime { get ; set ; }
         
         public CompletedGroupPowerEventLogDTO() {}
 
         public CompletedGroupPowerEventLogDTO(GroupPowerEventLog groupPowerEventLog) : base(groupPowerEventLog.GroupId, groupPowerEventLog.GroupName, groupPowerEventLog.PowerState, groupPowerEventLog.ReleaseTime) {
-            EventRequestTime = groupPowerEventLog.EventRequestTime;
+            EventRequestTime = DateTime.SpecifyKind(groupPowerEventLog.EventRequestTime, DateTimeKind.Utc);
         }
     }
 
@@ -314,9 +321,10 @@ namespace GroupEvent {
         }
 
         public void RemoveGroupPowerEventLog(List<CompletedGroupPowerEventLogDTO> groupPowerEventLogDtos) {
-            var targetKeys = groupPowerEventLogDtos.Select(dto => new { dto.GroupId, dto.EventRequestTime }).ToHashSet();
+            var targetIds = groupPowerEventLogDtos.Select(dto => dto.GroupId).ToHashSet();
+            var targetTimes = groupPowerEventLogDtos.Select(dto => dto.EventRequestTime).ToHashSet();
             // I'm likely holding this wrong but trying to query groupPowerEventLogDtos within the scope of the RemoveRange call was causing LINQ expression translation exceptions.
-            _context.GroupPowerEventLog.RemoveRange(_context.GroupPowerEventLog.Where(gpe => targetKeys.Contains(new { gpe.GroupId, gpe.EventRequestTime })).ToList());
+            _context.GroupPowerEventLog.RemoveRange([.. _context.GroupPowerEventLog.Where(gpe => targetIds.Contains(gpe.GroupId) && targetTimes.Contains(gpe.EventRequestTime))]);
             _context.SaveChanges();
         }
 

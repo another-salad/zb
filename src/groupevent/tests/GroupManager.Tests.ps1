@@ -19,7 +19,7 @@ BeforeAll {
 
 }
 
-Describe "DB-less GroupManager tests" {
+Describe "DB-less GroupManager tests" -tag "NoDB" {
 
     Context "GroupLockDTO" {
         It "GroupLockDTO defaults to UTC ReleaseTime" {
@@ -36,7 +36,7 @@ Describe "DB-less GroupManager tests" {
     }
 }
 
-Describe "GroupManager DataBase Tests" {
+Describe "GroupManager DataBase Tests" -Tag "DB" {
     BeforeEach {
         $DbTestDir = join-path $TestsTempDir "$((New-Guid).ToString('N'))"
         New-Item -Path $DbTestDir -ItemType Directory
@@ -45,7 +45,7 @@ Describe "GroupManager DataBase Tests" {
         $manager = [GroupEvent.GroupManager]::new($TestDataBase)
     }
 
-    Context "PowerEventOffset" {
+    Context "PowerEventOffset" -Tag "PowerEventOffset" {
 
         BeforeEach {
             $manager.NewPowerEventOffset('test-offset', (New-TimeSpan -Hours 2))
@@ -89,7 +89,7 @@ Describe "GroupManager DataBase Tests" {
         }
     }
 
-    Context "GroupLock" {
+    Context "GroupLock" -Tag "GroupLock" {
 
         It "should set and get group locks with NewGroupLock and GetGroupLock with DTOs" {
             $groupLockDto = [GroupEvent.GroupLockDTO]::new(1,"test-group",100,[GroupEvent.PowerState]::On)
@@ -100,12 +100,118 @@ Describe "GroupManager DataBase Tests" {
             $res.GroupName | should -Be "test-group"
             $res.RequestType | should -Be 100
             $res.PowerState | should -Be ([GroupEvent.PowerState]::On)
-            # I'm only going to test this once, as it feels like I'm validating the runtime a little bit here.
-            # If the below assertion falls over, the likely culprit is me changing the default behaviour or forgetting about UTC
             $currentDateTime = Get-Date -AsUTC
             # The seconds will differ so lets just ignore them
+            $res.releasetime.Kind | Should -Be 'Utc'
             $res.ReleaseTime.ToShortTimeString() | Should -Be $currentDateTime.ToShortTimeString()
             $res.ReleaseTime.ToShortDateString() | Should -Be $currentDateTime.ToShortDateString()
+        }
+
+        It "should update existing group locks with SetGroupLock" {
+            $groupLockDto = [GroupEvent.GroupLockDTO]::new(1,"test-group",100,[GroupEvent.PowerState]::On)
+            $manager.NewGroupLock($groupLockDto)
+
+            $groupLockDto.RequestType = 200
+            $groupLockDto.PowerState = [GroupEvent.PowerState]::Off
+            $manager.SetGroupLock($groupLockDto)
+
+            $res = $manager.GetGroupLock($groupLockDto)
+            $res.RequestType | should -Be 200
+            $res.PowerState | should -Be ([GroupEvent.PowerState]::Off)
+        }
+
+        It "should remove group locks with RemoveGroupLock" {
+            $groupLockDto = [GroupEvent.GroupLockDTO]::new(1,"test-group",100,[GroupEvent.PowerState]::On)
+            $manager.NewGroupLock($groupLockDto)
+
+            $manager.RemoveGroupLock($groupLockDto)
+
+            $res = $manager.GetGroupLock($groupLockDto)
+            $res | Should -Be $null
+        }
+
+        It "should remove all group locks provided to RemoveGroupLock" {
+            $ToRemove = @()
+            foreach ($i in 1..5) {
+                $groupLockDto = [GroupEvent.GroupLockDTO]::new($i,"test-group-$i",100,[GroupEvent.PowerState]::On)
+                $manager.NewGroupLock($groupLockDto)
+                $ToRemove += $groupLockDto
+            }
+            $manager.GetGroupLock() | Should -HaveCount 5
+            $manager.RemoveGroupLock($ToRemove)
+            $manager.GetGroupLock() | Should -BeNullOrEmpty
+        }
+
+        It "NewGroupLock should create a new group lock with GroupLockDTOWithOffset" {
+            $manager.NewPowerEventOffset('test-offset', (New-TimeSpan -Hours 4))
+            $groupLockDto = [GroupEvent.GroupLockDTOWithOffset]::new(1,"test-group",100,[GroupEvent.PowerState]::On, $manager.GetPowerEventOffset('test-offset'))
+            $manager.NewGroupLock($groupLockDto)
+            $res = $manager.GetGroupLock($groupLockDto)
+            $res | should -Be GroupEvent.GroupLockDTO
+            $res.GroupId | should -Be 1
+            $res.GroupName | should -Be "test-group"
+            $res.RequestType | should -Be 100
+            $res.PowerState | should -Be ([GroupEvent.PowerState]::On)
+            $res.releasetime.Kind | Should -Be 'Utc'
+            $expectedReleaseTime = (Get-Date -AsUTC).AddHours(4)  
+            $res.ReleaseTime.ToShortDateString() | Should -Be $expectedReleaseTime.ToShortDateString()
+            $res.ReleaseTime.ToShortTimeString() | Should -Be $expectedReleaseTime.ToShortTimeString()
+        }
+    }
+
+    Context "GroupPowerEventLog" -Tag "GroupPowerEventLog" {
+
+        BeforeEach {
+            $manager.NewPowerEventOffset('test-offset', (New-TimeSpan -Hours 4))
+            foreach ($i in 1..5) {
+                $groupLockDto = [GroupEvent.GroupLockDTOWithOffset]::new($i,"test-group-$i",100,[GroupEvent.PowerState]::On, $manager.GetPowerEventOffset('test-offset'))
+                $manager.NewGroupPowerEventLog([GroupEvent.PendingGroupPowerEventLogDTO]::new($groupLockDto))
+            }
+            $logs = $manager.GetGroupPowerEventLog()
+            $logs | Should -HaveCount 5
+        }
+
+        It "Should create new power event log with NewGroupPowerEventLog" {
+            $logs | foreach-object -Begin {$i=1} -Process {
+                $_ | Should -Be GroupEvent.CompletedGroupPowerEventLogDTO
+                $_.GroupId | Should -Be $i
+                $_.GroupName | Should -Be "test-group-$i"
+                $_.PowerState | Should -Be ([GroupEvent.PowerState]::On)
+                $_.ReleaseTime.Kind | Should -Be 'Utc'
+                $_.EventRequestTime.Kind | Should -Be 'Utc'
+                $_.EventRequestTime | Should -BeGreaterOrEqual (Get-Date -AsUTC).AddMinutes(-1) # EventRequestTime should be recent
+                $i++
+            }
+        }
+
+        It "Should remove power event logs with RemoveGroupPowerEventLog" {
+            $manager.RemoveGroupPowerEventLog($logs)
+            $manager.GetGroupPowerEventLog() | Should -BeNullOrEmpty
+        }
+
+        It "Should only remove specified power event logs with RemoveGroupPowerEventLog" {
+            $logsToRemove = $logs | Select-Object -First 3
+            $manager.RemoveGroupPowerEventLog($logsToRemove)
+            $remainingLogs = $manager.GetGroupPowerEventLog()
+            $remainingLogs | Should -HaveCount 2
+            $remainingLogs.GroupId | Should -Not -Contain 1
+            $remainingLogs.GroupId | Should -Not -Contain 2
+            $remainingLogs.GroupId | Should -Not -Contain 3
+            $remainingLogs.GroupId | Should -Contain 4
+            $remainingLogs.GroupId | Should -Contain 5
+        }
+
+        It "should only remove power events from within date range with RemoveGroupPowerEventLog" {
+            $cutOffTime = (Get-Date -AsUtc)
+            Start-Sleep -Seconds 2 # Ensure some time has passed so we have a clear cutoff
+            $groupLockDto = [GroupEvent.GroupLockDTOWithOffset]::new(999,"test-group-999",100,[GroupEvent.PowerState]::On, $manager.GetPowerEventOffset('test-offset'))
+            $manager.NewGroupPowerEventLog([GroupEvent.PendingGroupPowerEventLogDTO]::new($groupLockDto))
+            $logs = $manager.GetGroupPowerEventLog()
+            $logs | should -havecount 6
+            $manager.RemoveGroupPowerEventLog((get-date -AsUTC).AddMinutes(-5), $cutOffTime)
+            $remainingLogs = $manager.GetGroupPowerEventLog()
+            $remainingLogs | Should -HaveCount 1
+            $remainingLogs[0].GroupId | Should -Be 999
         }
     }
 }
