@@ -95,6 +95,7 @@ Describe "GroupManager DataBase Tests" {
             $groupLockDto = [GroupEvent.GroupLockDTO]::new(1,"test-group",100,[GroupEvent.PowerState]::On)
             $manager.NewGroupLock($groupLockDto)
             $res = $manager.GetGroupLock($groupLockDto)
+            $res | should -Be GroupEvent.GroupLockDTO
             $res.GroupId | should -Be 1
             $res.GroupName | should -Be "test-group"
             $res.RequestType | should -Be 100

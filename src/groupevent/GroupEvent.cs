@@ -125,7 +125,7 @@ namespace GroupEvent {
                 GroupName   = gl.GroupName,
                 RequestType = gl.RequestType,
                 PowerState  = gl.PowerState,
-                ReleaseTime = gl.ReleaseTime
+                ReleaseTime = DateTime.SpecifyKind(gl.ReleaseTime, DateTimeKind.Utc)
             };
 
         private static (DateTime from, DateTime to) ResolveDateRange(DateTime? from, DateTime? to){
