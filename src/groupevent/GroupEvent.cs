@@ -63,7 +63,7 @@ namespace GroupEvent {
         public TimeSpan Offset { get; set; }
 
         public PowerEventOffsetDto(string? name, TimeSpan offset) {
-            Name = name;
+            Name   = name;
             Offset = offset;
         }
 
@@ -171,7 +171,7 @@ namespace GroupEvent {
             GroupLock? existingLock = _context.GroupLock.FirstOrDefault(gl => gl.GroupId == groupId);
             if (existingLock != null) {
                 existingLock.RequestType = requestType;
-                existingLock.PowerState = powerState;
+                existingLock.PowerState  = powerState;
                 existingLock.ReleaseTime = releaseTime.ToUniversalTime();
                 _context.GroupLock.Update(existingLock);
                 _context.SaveChanges();
