@@ -14,6 +14,7 @@ $EventName = [PSCustomObject]@{
 }
 
 trap {
+    $script:stopRequested = $true
     get-job | stop-job
 }
 
@@ -163,7 +164,7 @@ $job = start-job -name LightManager -scriptblock {
     $using:EventName | gm -MemberType NoteProperty | select -ExpandProperty Name | % { Register-EngineEvent -SourceIdentifier $_ -Forward } 
     
     try {
-        while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
+        while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open -and !$script:stopRequested) {
             $sensorEvent = $ws | Receive-WsData | where id -in $triggerSensors.ApiId
             if ($sensorEvent) {
                 $EventData = [pscustomobject]@{
