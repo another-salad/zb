@@ -6,9 +6,15 @@ param(
     [switch]$Block
 )
 
+$script:stopRequested = $false
+
 $EventName = [PSCustomObject]@{
     ButtonEvent = "ButtonEvent"
     Presence = "Presence"
+}
+
+trap {
+    get-job | stop-job
 }
 
 Register-EngineEvent -SourceIdentifier $EventName.Presence -Action {
@@ -143,11 +149,11 @@ Register-EngineEvent -SourceIdentifier $EventName.ButtonEvent -Action {
     }
 }
 
-trap {
-    get-job | stop-job
+Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+    $script:stopRequested = $true
 }
 
-start-job -name LightManager -scriptblock {
+$job = start-job -name LightManager -scriptblock {
     $using:ModulesToImport | % {import-module $_ -Force}
     New-ConbeeSessionUsingVault -hostname $using:Hostname
     $ws = New-WsConnection
@@ -181,5 +187,14 @@ start-job -name LightManager -scriptblock {
 }
 
 if ($Block) {
-    get-job | wait-job
+    try {
+        while (-not $script:stopRequested) {
+            if ($job.State -ne 'Running') {
+                break
+            }
+            Start-Sleep -Seconds 1
+        }
+    } finally {
+        get-job | stop-job -Force
+    }
 }
