@@ -1,21 +1,13 @@
 param(
-    [Parameter(Mandatory)][string]$Hostname,
-    [int]$MaximumLightBrightness = 255,  # Max brightness to set lights to when triggered.
-    [string[]]$OnOffOnlyGroups,  # Unfortunately I cannot find a way of detecting what a group supports via the API.
-    [Parameter(Mandatory)][string[]]$ModulesToImport,
+    [Parameter(Mandatory)][ValidateScript({(test-path $_ -PathType Leaf) -and (split-path $_ -Leaf).EndsWith('.clixml')})]$ConfigClixml,  # generate config with New-TriggerConfig
     [switch]$Block
 )
 
-$script:stopRequested = $false
+$Config = Import-Clixml -Path $ConfigClixml
 
 $EventName = [PSCustomObject]@{
     ButtonEvent = "ButtonEvent"
     Presence = "Presence"
-}
-
-trap {
-    $script:stopRequested = $true
-    get-job | stop-job
 }
 
 Register-EngineEvent -SourceIdentifier $EventName.Presence -Action {
@@ -150,13 +142,9 @@ Register-EngineEvent -SourceIdentifier $EventName.ButtonEvent -Action {
     }
 }
 
-Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
-    $script:stopRequested = $true
-}
-
 $job = start-job -name LightManager -scriptblock {
-    $using:ModulesToImport | % {import-module $_ -Force}
-    New-ConbeeSessionUsingVault -hostname $using:Hostname
+    $using:Config.ModulesToImport | % {import-module $_ -Force}
+    New-ConbeeSessionUsingVault -hostname $using:Config.HostName
     $ws = New-WsConnection
     $triggerSensors = Import-TriggerSensors | ConvertTo-FlatObject
 
@@ -164,16 +152,17 @@ $job = start-job -name LightManager -scriptblock {
     $using:EventName | gm -MemberType NoteProperty | select -ExpandProperty Name | % { Register-EngineEvent -SourceIdentifier $_ -Forward } 
     
     try {
-        while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open -and !$script:stopRequested) {
+        while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
             $sensorEvent = $ws | Receive-WsData | where id -in $triggerSensors.ApiId
             if ($sensorEvent) {
                 $EventData = [pscustomobject]@{
                     sensorEvent            = $sensorEvent
                     TriggerSensors         = $triggerSensors
-                    OnOffOnlyGroups        = $using:OnOffOnlyGroups
-                    ModulesToImport        = $using:ModulesToImport
-                    Hostname               = $using:HostName
-                    MaximumLightBrightness = $using:MaximumLightBrightness
+                    # I know the unpacking is a little hideous, but I still think its nicer to hold for the events if the config is unpacked.
+                    OnOffOnlyGroups        = $using:Config.OnOffOnlyGroups
+                    ModulesToImport        = $using:Config.ModulesToImport
+                    Hostname               = $using:Config.HostName
+                    MaximumLightBrightness = $using:Config.MaximumLightBrightness
                 }
                 # We care about buttonevents or presence updates, generic state changed events can be dropped to the floor
                 $EventType = if ($sensorEvent.state.ButtonEvent) { $using:EventName.ButtonEvent } elseif ($sensorEvent.state | gm -name Presence) { $using:EventName.Presence } else { $null }
@@ -188,14 +177,6 @@ $job = start-job -name LightManager -scriptblock {
 }
 
 if ($Block) {
-    try {
-        while (-not $script:stopRequested) {
-            if ($job.State -ne 'Running') {
-                break
-            }
-            Start-Sleep -Seconds 1
-        }
-    } finally {
-        get-job | stop-job -Force
-    }
+    while ($job.State -eq 'Running') {Start-Sleep -Seconds 1}
+    get-job | stop-job
 }
