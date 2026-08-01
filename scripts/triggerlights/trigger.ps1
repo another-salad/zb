@@ -189,6 +189,9 @@ if ($Block) {
                 Throw "Jobs: $($failed.name -join ', ') failed"
             }
             Start-Sleep -Seconds 1
+            # maybe forcing some garbage collection will be a _winning_ plan?
+            [System.GC]::Collect()
+            [System.GC]::WaitForPendingFinalizers()
         }
     } finally {
         get-job | stop-job
