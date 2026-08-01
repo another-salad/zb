@@ -11,7 +11,7 @@ $EventName = [PSCustomObject]@{
 }
 
 Register-EngineEvent -SourceIdentifier $EventName.Presence -Action {
-    $Event.MessageData.ModulesToImport | % {import-module $_ -Force}
+    $Event.MessageData.ModulesToImport | % {import-module $_}
     $manager = [GroupEvent.GroupManager]::new()
     New-ConbeeSessionUsingVault -hostname $Event.MessageData.Hostname
     $darknessEventType = 423
@@ -71,11 +71,14 @@ Register-EngineEvent -SourceIdentifier $EventName.Presence -Action {
             $LightGroupState | Set-LightGroupState
         }
     }
+    # an attempt to help with memory usage a little bit
+    remove-variable manager -ErrorAction SilentlyContinue
 }
 
 Register-EngineEvent -SourceIdentifier $EventName.ButtonEvent -Action {
-    $Event.MessageData.ModulesToImport | % {import-module $_ -Force}
+    $Event.MessageData.ModulesToImport | % {import-module $_}
     New-ConbeeSessionUsingVault -hostname $Event.MessageData.Hostname
+    $manager = [GroupEvent.GroupManager]::new()
     $Event.MessageData.TriggerSensors | Where-Object { [int]$_.apiid -eq [int]$Event.MessageData.sensorEvent.id } | % {
         $_.TriggerGroup | % {
             $TriggerGroup = $_
@@ -96,7 +99,6 @@ Register-EngineEvent -SourceIdentifier $EventName.ButtonEvent -Action {
                 }
                 $LightGroupState | Set-LightGroupState
             } else {
-                $manager = [GroupEvent.GroupManager]::new()
                 $buttonState = [int]$Event.MessageData.sensorEvent.state.buttonevent
                 $ButtonOverride = $manager.GetPowerEventOffset($buttonState)
                 if (!$ButtonOverride) {
@@ -140,10 +142,12 @@ Register-EngineEvent -SourceIdentifier $EventName.ButtonEvent -Action {
             }
         }
     }
+    # an attempt to help with memory usage a little bit
+    remove-variable manager -ErrorAction SilentlyContinue
 }
 
 $job = start-job -name LightManager -scriptblock {
-    $using:Config.ModulesToImport | % {import-module $_ -Force}
+    $using:Config.ModulesToImport | % {import-module $_}
     New-ConbeeSessionUsingVault -hostname $using:Config.HostName
     $ws = New-WsConnection
     $triggerSensors = Import-TriggerSensors | ConvertTo-FlatObject
@@ -177,6 +181,16 @@ $job = start-job -name LightManager -scriptblock {
 }
 
 if ($Block) {
-    while ($job.State -eq 'Running') {Start-Sleep -Seconds 1}
-    get-job | stop-job
+    try {
+        while ($True) {
+            # check on all of the Event jobs we spawn
+            $failed = Get-job | where state -eq failed
+            if ($failed) {
+                Throw "Jobs: $($failed.name -join ', ') failed"
+            }
+            Start-Sleep -Seconds 1
+        }
+    } finally {
+        get-job | stop-job
+    }
 }
