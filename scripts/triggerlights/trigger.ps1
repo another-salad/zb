@@ -181,19 +181,11 @@ $job = start-job -name LightManager -scriptblock {
 }
 
 if ($Block) {
-    try {
-        while ($True) {
-            # check on all of the Event jobs we spawn
-            $failed = Get-job | where state -eq failed
-            if ($failed) {
-                Throw "Jobs: $($failed.name -join ', ') failed"
-            }
-            Start-Sleep -Seconds 1
-            # maybe forcing some garbage collection will be a _winning_ plan?
-            [System.GC]::Collect()
-            [System.GC]::WaitForPendingFinalizers()
-        }
-    } finally {
-        get-job | stop-job
+    while ($job.State -eq 'Running') {
+        # individual jobs can fail and it not be fatal, the 'main' job terminating is.
+        Start-Sleep -Seconds 60
+        # maybe forcing some garbage collection will be a _winning_ plan?
+        [System.GC]::Collect()
+        [System.GC]::WaitForPendingFinalizers()
     }
 }
