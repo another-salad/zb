@@ -171,7 +171,8 @@ $job = start-job -name LightManager -scriptblock {
                 # We care about buttonevents or presence updates, generic state changed events can be dropped to the floor
                 $EventType = if ($sensorEvent.state.ButtonEvent) { $using:EventName.ButtonEvent } elseif ($sensorEvent.state | gm -name Presence) { $using:EventName.Presence } else { $null }
                 if ($EventType) {
-                    New-Event -SourceIdentifier $EventType -MessageData $EventData 
+                    New-Event -SourceIdentifier $EventType -MessageData $EventData
+                    [System.GC]::Collect()  # Force some gc
                 }
             }    
         }      
@@ -181,11 +182,5 @@ $job = start-job -name LightManager -scriptblock {
 }
 
 if ($Block) {
-    while ($job.State -eq 'Running') {
-        # individual jobs can fail and it not be fatal, the 'main' job terminating is.
-        Start-Sleep -Seconds 60
-        # maybe forcing some garbage collection will be a _winning_ plan?
-        [System.GC]::Collect()
-        [System.GC]::WaitForPendingFinalizers()
-    }
+    while ($job.State -eq 'Running') {start-sleep -Seconds 0.1 }
 }
