@@ -150,14 +150,14 @@ $job = start-job -name LightManager -scriptblock {
             $_.TriggerGroup | % {
                 $TriggerGroup = $_
                 $Group = Get-GroupByName -Name $TriggerGroup  # Gets the group state from the API
-                $LightGroupState = $Group | New-LightGroupState -transitiontime 5  # decide what looks good for a dimming event
+                $LightGroupState = $Group | New-LightGroupState -transitiontime 10  # 10 actually looks good in the real world.
                 $LightGroupState.On = $true
                 $LightGroupState.Bri = if ([int]$Event.MessageData.sensorEvent.state.ButtonEvent -lt 3000) {
                     # 200X events are to increase light levels
-                    [math]::Min($Group.action.bri + 20, $Event.MessageData.MaximumLightBrightness)  # don't want to go above max brightness
+                    [math]::Min($Group.action.bri + 40, $Event.MessageData.MaximumLightBrightness)  # don't want to go above max brightness
                 } elseif ([int]$Event.MessageData.sensorEvent.state.ButtonEvent -lt 4000) {
                     # 300X events are to decrease
-                    [math]::Max($Group.action.bri - 20, 20)  # don't want to go below zero
+                    [math]::Max($Group.action.bri - 40, 20)  # don't want to go below zero
                 } else {
                     # TODO: 400X are _scence_ events, I need to think about these
                     return
