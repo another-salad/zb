@@ -7,6 +7,7 @@ $Config = Import-Clixml -Path $ConfigClixml
 
 $EventName = [PSCustomObject]@{
     ButtonEvent = "ButtonEvent"
+    DimmerEvent = "DimmerEvent"  # Also a button event, but with specific nuance
     Presence = "Presence"
 }
 
@@ -144,6 +145,28 @@ $job = start-job -name LightManager -scriptblock {
         }
     }
 
+    Register-EngineEvent -SourceIdentifier $using:EventName.DimmerEvent -Action {
+        $TriggerSensors | Where-Object { [int]$_.apiid -eq [int]$Event.MessageData.sensorEvent.id } | % {
+            $_.TriggerGroup | % {
+                $TriggerGroup = $_
+                $Group = Get-GroupByName -Name $TriggerGroup  # Gets the group state from the API
+                $LightGroupState = $Group | New-LightGroupState -transitiontime 5  # decide what looks good for a dimming event
+                $LightGroupState.On = $true
+                $LightGroupState.Bri = if ([int]$Event.MessageData.sensorEvent.state.ButtonEvent -lt 3000) {
+                    # 200X events are to increase light levels
+                    [math]::Min($Group.action.bri + 20, $Event.MessageData.MaximumLightBrightness)  # don't want to go above max brightness
+                } elseif ([int]$Event.MessageData.sensorEvent.state.ButtonEvent -lt 4000) {
+                    # 300X events are to decrease
+                    [math]::Max($Group.action.bri - 20, 20)  # don't want to go below zero
+                } else {
+                    # TODO: 400X are _scence_ events, I need to think about these
+                    return
+                }
+                $LightGroupState | Set-LightGroupState
+            }
+        }
+    }
+
     # Register event forwarding once at startup
     # $using:EventName | gm -MemberType NoteProperty | select -ExpandProperty Name | % { Register-EngineEvent -SourceIdentifier $_ -Forward }
     
@@ -159,10 +182,19 @@ $job = start-job -name LightManager -scriptblock {
                     Hostname               = $using:Config.HostName
                     MaximumLightBrightness = $using:Config.MaximumLightBrightness
                 }
-                # We care about buttonevents or presence updates, generic state changed events can be dropped to the floor
-                $EventType = if ($sensorEvent.state.ButtonEvent) { $using:EventName.ButtonEvent } elseif ($sensorEvent.state | gm -name Presence) { $using:EventName.Presence } else { $null }
-                if ($EventType) {
-                    New-Event -SourceIdentifier $EventType -MessageData $EventData
+                # We care about buttonevents (dimmer or standard) or presence updates, generic state changed events can be dropped to the floor
+                if ($sensorEvent.state.ButtonEvent) {
+                    # We can be a normal button press or a dimmer
+                    if ($manager.GetPowerEventOffset([int]$sensorEvent.state.ButtonEvent)) {
+                        # Dimmers aren't used to lock lights on, they only care about light level state when they are being processed.
+                        # If we have a powerevent offset hit, we must be a normal on/off request (or a _darkness_ event).
+                        New-Event -SourceIdentifier $using:EventName.ButtonEvent -MessageData $EventData
+                    } elseif (($sensorEvent.state | gm -name eventduration) -and ($sensorEvent.state.eventduration -gt 0)) {
+                        # Dimmers send null duration events when a button is pressed. We don't care about these, we only want the later emitted events which show which press type occurred (long/hold/short).
+                        New-Event -SourceIdentifier $using:EventName.DimmerEvent -MessageData $EventData
+                    }
+                } elseif ($sensorEvent.state | gm -name Presence) {
+                    New-Event -SourceIdentifier $using:EventName.Presence -MessageData $EventData
                 }
             }    
         }      
