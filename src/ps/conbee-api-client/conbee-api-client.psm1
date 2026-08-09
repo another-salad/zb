@@ -704,9 +704,18 @@ Function New-WsConnection {
     )
     Add-Type -AssemblyName System.Net.WebSockets.Client
     $uri = "ws://$($script:ConbeeHostName):$Port"
-    $ws = [System.Net.WebSockets.ClientWebSocket]::new()
-    $ws.ConnectAsync([Uri]$uri, [Threading.CancellationToken]::None).Wait()
-    $ws
+    $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(60))
+    try {
+        $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+        $ws.ConnectAsync([Uri]$uri, $cts.Token).Wait()
+        $ws
+    } catch {
+        # Failing to create a websocket is actually fatal.
+        throw
+    } finally {
+        $cts.Dispose()
+    }
+
 }
 
 Function Close-WsConnection {
@@ -716,8 +725,13 @@ Function Close-WsConnection {
         [System.Net.WebSockets.ClientWebSocket]$ws
     )
     process {
-        $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", [Threading.CancellationToken]::None).Wait()
-        $ws.Dispose()
+        $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(10))
+        try {
+            $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", $cts.Token).Wait()
+        } finally {
+            $cts.Dispose()
+            $ws.Dispose()
+        }
     }
 }
 
@@ -731,9 +745,16 @@ Function Receive-WsData {
         $Buffer = [byte[]]::new(1024)
     }
     process {
-        $segment = [System.ArraySegment[byte]]::new($buffer)
-        $result = $ws.ReceiveAsync($segment, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
-        [System.Text.Encoding]::UTF8.GetString($Buffer, 0, $result.Count) | ConvertFrom-Json
+        $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(60))
+        try {
+            [System.Text.Encoding]::UTF8.GetString(
+                $Buffer,
+                0,
+                ($ws.ReceiveAsync([System.ArraySegment[byte]]::new($buffer), $cts.Token).GetAwaiter().GetResult()).Count
+            ) | ConvertFrom-Json
+        } finally {
+            $cts.Dispose()
+        }
     }
 }
 #endregion
