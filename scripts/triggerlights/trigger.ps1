@@ -19,6 +19,60 @@ $job = start-job -name LightManager -scriptblock {
     $triggerSensors = Import-TriggerSensors | ConvertTo-FlatObject
     $manager = [GroupEvent.GroupManager]::new()
 
+    # TODO: Should be in a better place (like the DB), but here for now.
+    $XyColourDefaults = [PSCustomObject]@{                                                                                    
+        0 = @{         
+            # Green                                                                                                  
+            xy = @(0.2, 0.7)   
+        }
+        1 = @{
+            # Yellow
+            xy = @(0.45, 0.5)
+        }
+        2 = @{
+            # Red
+            xy = @(0.6, 0.3)
+        }
+        3 = @{
+            # Purple
+            xy = @(0.45, 0.2)
+        }
+        4 = @{
+            # blue
+            xy = @(0.165, 0.0975)
+        }
+        5 = @{
+            # light blue
+            xy = @(0.125, 0.325)
+        }
+        6 = @{
+            # minty?
+            xy = @(0.25, 0.48)
+        }
+        7 = @{
+            # white
+            xy = @(0.35, 0.35)
+        }
+    }
+    
+    # TODO: Move this too
+    Function XyArrayWithinTolerance {
+        # When setting X,Y colour values to some lights (an RGB TV strip for example), what you set is not always what you get.
+        # The deconz API seemingly sets a close approximation of the CIE xy colour space coordinates, or rounding is hard or whatever. 
+        param(
+            $RequestedXy,
+            $CurrentXy,
+            $tolerance = 20 # A percentage
+        )
+        for ($i=0;$i -lt $CurrentXy.Count;$i++) {
+            if (([math]::Abs(($RequestedXy[$i] - $CurrentXy[$i]) / $CurrentXy[$i]) * 100) -gt $tolerance) {
+                $false
+                return
+            }
+        }
+        $True
+    }
+
     Register-EngineEvent -SourceIdentifier $using:EventName.Presence -Action {
         $darknessEventType = 423
         $darknessLockOffset = $manager.GetPowerEventOffset($darknessEventType)  # $manager.NewPowerEventOffset(423, (New-TimeSpan -Hours 12))
@@ -150,17 +204,31 @@ $job = start-job -name LightManager -scriptblock {
             $_.TriggerGroup | % {
                 $TriggerGroup = $_
                 $Group = Get-GroupByName -Name $TriggerGroup  # Gets the group state from the API
+                $buttonEvent = [int]$Event.MessageData.sensorEvent.state.ButtonEvent
                 $LightGroupState = $Group | New-LightGroupState -transitiontime 10  # 10 actually looks good in the real world.
                 $LightGroupState.On = $true
-                $LightGroupState.Bri = if ([int]$Event.MessageData.sensorEvent.state.ButtonEvent -lt 3000) {
-                    # 200X events are to increase light levels
-                    [math]::Min($Group.action.bri + 40, $Event.MessageData.MaximumLightBrightness)  # don't want to go above max brightness
-                } elseif ([int]$Event.MessageData.sensorEvent.state.ButtonEvent -lt 4000) {
-                    # 300X events are to decrease
-                    [math]::Max($Group.action.bri - 40, 20)  # don't want to go below zero
+                if ($buttonEvent -eq 4002) {  # A Press and release of the scene button (labled hue on philips switches)
+                    # A _speedy enough_ way of iterating through the colour cycle without having to known what is before or behind you.
+                    $LightGroupState.xy = $(
+                        if     (XyArrayWithinTolerance $XyColourDefaults."0".xy $Group.action.xy) {$XyColourDefaults."1".xy}  # 0 maps to 1
+                        elseif (XyArrayWithinTolerance $XyColourDefaults."1".xy $Group.action.xy) {$XyColourDefaults."2".xy}  # 1 maps to 2
+                        elseif (XyArrayWithinTolerance $XyColourDefaults."2".xy $Group.action.xy) {$XyColourDefaults."3".xy}  # 2 maps to 3
+                        elseif (XyArrayWithinTolerance $XyColourDefaults."3".xy $Group.action.xy) {$XyColourDefaults."4".xy}  # 3 maps to 4
+                        elseif (XyArrayWithinTolerance $XyColourDefaults."4".xy $Group.action.xy) {$XyColourDefaults."5".xy}  # 4 maps to 5
+                        elseif (XyArrayWithinTolerance $XyColourDefaults."5".xy $Group.action.xy) {$XyColourDefaults."6".xy}  # 5 maps to 6
+                        elseif (XyArrayWithinTolerance $XyColourDefaults."6".xy $Group.action.xy) {$XyColourDefaults."7".xy}  # 6 maps to 7
+                        else   {$XyColourDefaults."0".xy}
+                    )
                 } else {
-                    # TODO: 400X are _scence_ events, I need to think about these
-                    return
+                    $LightGroupState.Bri = if ($buttonEvent -lt 3000) {
+                        # 200X events are to increase light levels
+                        [math]::Min($Group.action.bri + 40, $Event.MessageData.MaximumLightBrightness)  # don't want to go above max brightness
+                    } elseif ($buttonEvent -lt 4000) {
+                        # 300X events are to decrease
+                        [math]::Max($Group.action.bri - 40, 20)  # don't want to go below zero
+                    } else {
+                        return # these events are meaningless, so lets get out of here
+                    }
                 }
                 $LightGroupState | Set-LightGroupState
             }

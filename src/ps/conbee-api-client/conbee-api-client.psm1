@@ -582,7 +582,13 @@ Function New-LightGroupState {
         [Nullable[int]]$Brightness     = $null,
         [Nullable[int]]$Hue            = $null,
         [Nullable[int]]$Saturation     = $null,
-        [Nullable[int]]$Transitiontime = $null
+        [Nullable[int]]$Transitiontime = $null,
+        # Nullable string, maybe this is a bad idea.
+        # $colormode                     = $null,  # "hs", "xy", "ct" READONLY
+        [Nullable[int]]$ct             = $null,
+        # CIE xy color space coordinates @(x,y)
+        $xy                            = $null,
+        $effect                        = $null  # none, colorloop
     )
     Test-NullableParamWithinRange $Brightness -Min 0 -Max 255 | out-null
     Test-NullableParamWithinRange $Hue -Min 0 -Max 65535 | out-null
@@ -596,6 +602,11 @@ Function New-LightGroupState {
         Hue            = $Hue
         Sat            = $Saturation
         Transitiontime = $Transitiontime
+        # For lightstrip - think about if I want to split this up into more _specific_ chunks
+        # colormode      = $colormode
+        ct             = $ct
+        xy             = $xy
+        effect         = $effect
     }
 }
 
