@@ -1,3 +1,5 @@
+#Requires -Modules Microsoft.PowerShell.ThreadJob
+
 param(
     [Parameter(Mandatory)][ValidateScript({(test-path $_ -PathType Leaf) -and (split-path $_ -Leaf).EndsWith('.clixml')})]$ConfigClixml,  # generate config with New-TriggerConfig
     [switch]$Block
@@ -12,9 +14,10 @@ $EventName = [PSCustomObject]@{
 }
 
 
-$job = start-job -name LightManager -scriptblock {
-    $using:Config.ModulesToImport | % {import-module $_}
-    New-ConbeeSessionUsingVault -hostname $using:Config.HostName
+$job = Start-ThreadJob -name LightManager -scriptblock {
+    param($EventName, $Config)
+    $Config.ModulesToImport | % {import-module $_}
+    New-ConbeeSessionUsingVault -hostname $Config.HostName
     $ws = New-WsConnection
     $triggerSensors = Import-TriggerSensors | ConvertTo-FlatObject
     $manager = [GroupEvent.GroupManager]::new()
@@ -73,7 +76,7 @@ $job = start-job -name LightManager -scriptblock {
         $True
     }
 
-    Register-EngineEvent -SourceIdentifier $using:EventName.Presence -Action {
+    Register-EngineEvent -SourceIdentifier $EventName.Presence -Action {
         $darknessEventType = 423
         $darknessLockOffset = $manager.GetPowerEventOffset($darknessEventType)  # $manager.NewPowerEventOffset(423, (New-TimeSpan -Hours 12))
         $TriggerSensors | Where-Object { [int]$_.apiid -eq [int]$Event.MessageData.sensorEvent.id } | % {
@@ -133,7 +136,7 @@ $job = start-job -name LightManager -scriptblock {
         }
     }
 
-    Register-EngineEvent -SourceIdentifier $using:EventName.ButtonEvent -Action {
+    Register-EngineEvent -SourceIdentifier $EventName.ButtonEvent -Action {
         $TriggerSensors | Where-Object { [int]$_.apiid -eq [int]$Event.MessageData.sensorEvent.id } | % {
             $_.TriggerGroup | % {
                 $TriggerGroup = $_
@@ -199,7 +202,7 @@ $job = start-job -name LightManager -scriptblock {
         }
     }
 
-    Register-EngineEvent -SourceIdentifier $using:EventName.DimmerEvent -Action {
+    Register-EngineEvent -SourceIdentifier $EventName.DimmerEvent -Action {
         $TriggerSensors | Where-Object { [int]$_.apiid -eq [int]$Event.MessageData.sensorEvent.id } | % {
             $_.TriggerGroup | % {
                 $TriggerGroup = $_
@@ -236,7 +239,7 @@ $job = start-job -name LightManager -scriptblock {
     }
 
     # Register event forwarding once at startup
-    # $using:EventName | gm -MemberType NoteProperty | select -ExpandProperty Name | % { Register-EngineEvent -SourceIdentifier $_ -Forward }
+    # $EventName | gm -MemberType NoteProperty | select -ExpandProperty Name | % { Register-EngineEvent -SourceIdentifier $_ -Forward }
     
     try {
         while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
@@ -245,10 +248,10 @@ $job = start-job -name LightManager -scriptblock {
                 $EventData = [pscustomobject]@{
                     sensorEvent            = $sensorEvent
                     # I know the unpacking is a little hideous, but I still think its nicer to hold for the events if the config is unpacked.
-                    OnOffOnlyGroups        = $using:Config.OnOffOnlyGroups
-                    ModulesToImport        = $using:Config.ModulesToImport
-                    Hostname               = $using:Config.HostName
-                    MaximumLightBrightness = $using:Config.MaximumLightBrightness
+                    OnOffOnlyGroups        = $Config.OnOffOnlyGroups
+                    ModulesToImport        = $Config.ModulesToImport
+                    Hostname               = $Config.HostName
+                    MaximumLightBrightness = $Config.MaximumLightBrightness
                 }
                 # We care about buttonevents (dimmer or standard) or presence updates, generic state changed events can be dropped to the floor
                 if ($sensorEvent.state.ButtonEvent) {
@@ -256,20 +259,20 @@ $job = start-job -name LightManager -scriptblock {
                     if ($manager.GetPowerEventOffset([int]$sensorEvent.state.ButtonEvent)) {
                         # Dimmers aren't used to lock lights on, they only care about light level state when they are being processed.
                         # If we have a powerevent offset hit, we must be a normal on/off request (or a _darkness_ event).
-                        New-Event -SourceIdentifier $using:EventName.ButtonEvent -MessageData $EventData
+                        New-Event -SourceIdentifier $EventName.ButtonEvent -MessageData $EventData
                     } elseif (($sensorEvent.state | gm -name eventduration) -and ($sensorEvent.state.eventduration -gt 0)) {
                         # Dimmers send null duration events when a button is pressed. We don't care about these, we only want the later emitted events which show which press type occurred (long/hold/short).
-                        New-Event -SourceIdentifier $using:EventName.DimmerEvent -MessageData $EventData
+                        New-Event -SourceIdentifier $EventName.DimmerEvent -MessageData $EventData
                     }
                 } elseif ($sensorEvent.state | gm -name Presence) {
-                    New-Event -SourceIdentifier $using:EventName.Presence -MessageData $EventData
+                    New-Event -SourceIdentifier $EventName.Presence -MessageData $EventData
                 }
             }    
         }      
     } finally {
         $ws | Close-WsConnection
     }
-}
+} -ArgumentList $EventName, $Config -ThrottleLimit 10
 
 if ($Block) {
     while ($job.State -eq 'Running') {start-sleep -Seconds 0.1 }
