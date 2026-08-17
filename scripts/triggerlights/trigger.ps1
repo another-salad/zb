@@ -275,5 +275,15 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
 } -ArgumentList $EventName, $Config -ThrottleLimit 10
 
 if ($Block) {
-    while ($job.State -eq 'Running') {start-sleep -Seconds 0.1 }
+    # Wait for job to start
+    $WaitAttempts = 10
+    while (($job.state -ne 'Running') -and ($job.state -ne 'Error') ) {
+        Write-Host "Job starting..."
+        start-sleep -Seconds 0.5
+        $WaitAttempts--
+        if ($WaitAttempts -le 0) {
+            Throw "Job failed to start"
+        }
+    }
+    while ($job.State -eq 'Running') {start-sleep -Seconds 0.1}
 }
