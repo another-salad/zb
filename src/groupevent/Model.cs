@@ -12,6 +12,8 @@ namespace GroupEvent {
 
         public DbSet<PowerEventOffset> PowerEventOffset { get; set; }
 
+        public DbSet<GroupLockScheduler> GroupLockScheduler { get; set; }
+
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
             optionsBuilder.UseSqlite($"Data Source={DbPath}");
         }
@@ -35,7 +37,33 @@ namespace GroupEvent {
             modelBuilder.Entity<PowerEventOffset>()
                 .HasIndex(peo => peo.Name)
                 .IsUnique();
+
+            modelBuilder.Entity<GroupLockScheduler>()
+                .HasIndex(gl => gl.GroupId)
+                .IsUnique();
             }
+            
+        private void UpdateLastModified() {
+            var entries = ChangeTracker
+                .Entries()
+                .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified);
+
+            foreach (var entry in entries) {
+                if (entry.Metadata.FindProperty("LastModified") != null) {
+                    entry.Property("LastModified").CurrentValue = DateTime.UtcNow;
+                }
+            }
+        }
+
+        public override int SaveChanges(bool acceptAllChangesOnSuccess) {
+            UpdateLastModified();
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+
+        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default) {
+            UpdateLastModified();
+            return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
     }
 
     public enum PowerState {
@@ -50,6 +78,16 @@ namespace GroupEvent {
         public int RequestType { get; set; }
         public PowerState PowerState {get; set;}
         public DateTime ReleaseTime { get; set; }
+    }
+
+    public class GroupLockScheduler {
+        public int Id { get; private set; }
+        public int GroupId { get; set; }
+        public string? GroupName { get; set; }
+        public PowerState PowerState { get; set; }
+        public TimeOnly StartTime { get; set; }
+        public TimeOnly ReleaseTime { get; set; }
+        public DateTime? LastModified { get; set; }
     }
 
     // I want the GroupLock table to only store records temporarily, therefore I can't strongly link a GroupLock entity in a GroupPowerEventLog record.
