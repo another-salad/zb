@@ -153,7 +153,16 @@ namespace GroupEvent {
                 PowerState  = gl.PowerState,
                 ReleaseTime = DateTime.SpecifyKind(gl.ReleaseTime, DateTimeKind.Utc)
             };
-
+            
+        private static readonly Expression<Func<GroupLockScheduler, GroupLockSchedulerDto>> _toSDto = 
+            sd => new GroupLockSchedulerDto {
+                GroupId     = sd.GroupId,
+                GroupName   = sd.GroupName,
+                PowerState  = sd.PowerState,
+                StartTime   = sd.StartTime,
+                ReleaseTime = sd.ReleaseTime
+            };
+    
         private static (DateTime from, DateTime to) ResolveDateRange(DateTime? from, DateTime? to){
             return (from ?? DateTime.MinValue, to ?? DateTime.UtcNow);
         }
@@ -270,6 +279,25 @@ namespace GroupEvent {
             NewGroupLockSchedule(scheduleDto.GroupId, scheduleDto.GroupName!, scheduleDto.PowerState, scheduleDto.StartTime, scheduleDto.ReleaseTime);
         }
 
+        public void SetGroupLockSchedule(int groupId, string? groupName, PowerState powerState, TimeOnly startTime, TimeOnly releaseTime) {
+            GroupLockScheduler? existingSchedule = _context.GroupLockScheduler.FirstOrDefault(gl => gl.GroupId == groupId);
+            if (existingSchedule != null) {
+                existingSchedule.GroupId     = groupId;
+                existingSchedule.GroupName   = groupName;
+                existingSchedule.PowerState  = powerState;
+                existingSchedule.StartTime   = startTime;
+                existingSchedule.ReleaseTime = releaseTime;
+                _context.GroupLockScheduler.Update(existingSchedule);
+                _context.SaveChanges();
+            } else {
+                logger.LogWarning("No GroupLockScheduler with id: {groupId} found. Use NewGroupLockSchedule for a new schedule.", groupId);
+            }
+        }
+
+        public void SetGroupLockSchedule(GroupLockSchedulerDto schedulerDto) {
+            SetGroupLockSchedule(schedulerDto.GroupId, schedulerDto.GroupName!, schedulerDto.PowerState, schedulerDto.StartTime, schedulerDto.ReleaseTime);
+        }
+
         public List<GroupLockSchedulerDto> GetGroupLockSchedule() {
             return [.. _context.GroupLockScheduler.Select(s => new GroupLockSchedulerDto {
                 GroupId      = s.GroupId,
@@ -279,6 +307,32 @@ namespace GroupEvent {
                 ReleaseTime  = s.ReleaseTime,
                 LastModified = s.LastModified
             })];
+        }
+
+        public GroupLockSchedulerDto? GetGroupLockSchedule(int groupId) {
+            return _context.GroupLockScheduler.Where(s => s.GroupId == groupId).Select(_toSDto).FirstOrDefault();
+        }
+
+        public GroupLockSchedulerDto? GetGroupLockSchedule(GroupLockSchedulerDto schedulerDto) {
+            return GetGroupLockSchedule(schedulerDto.GroupId);
+        }
+
+        public void RemoveGroupLockSchedule(int groupId) {
+            GroupLockScheduler? scheduler = _context.GroupLockScheduler.FirstOrDefault(s => s.GroupId == groupId);
+            if (scheduler != null) {
+                _context.GroupLockScheduler.Remove(scheduler);
+                _context.SaveChanges();
+            }
+        }
+
+        public void RemoveGroupLockSchedule(GroupLockSchedulerDto schedulerDto) {
+            RemoveGroupLockSchedule(schedulerDto.GroupId);
+        }
+
+        public void RemoveGroupLockSchedule(List<GroupLockSchedulerDto> schedulerDtos) {
+            var ids = schedulerDtos.Select(dto => dto.GroupId).ToList();
+            _context.GroupLockScheduler.RemoveRange(_context.GroupLockScheduler.Where(s => ids.Contains(s.GroupId)));
+            _context.SaveChanges();
         }
 
         public List<PowerEventOffsetDto> GetPowerEventOffset() {

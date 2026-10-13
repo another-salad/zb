@@ -175,6 +175,72 @@ Describe "GroupManager DataBase Tests" -Tag "DB" {
         }
     }
 
+    Context "GroupLockScheduler" -Tag "GroupLockScheduler" {
+        It "Should Set and Get GroupLockSchedules with NewGroupLockSchedule and GetGroupLockSchedule with a DTO" {
+            # Tests too much in one really, but we excerise the non-array return set and test methods quite nicely.
+            $dto = [GroupEvent.GroupLockSchedulerDto]::new(1,"yaya",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00")
+            $manager.NewGroupLockSchedule($dto)
+            $res = $manager.GetGroupLockSchedule($dto)
+            $res | should -Be GroupEvent.GroupLockSchedulerDto
+            $res.GroupId | Should -be 1
+            $res.GroupName | should -Be "yaya"
+            $res.PowerState | should -Be ([GroupEvent.PowerState]::On)
+            $res.StartTime | should -Be ([TimeOnly]"01:00:00")
+            $res.ReleaseTime | should -Be ([TimeOnly]"06:00:00")
+        }
+
+        It "Should update an existing GroupLockSchedule with SetGroupLockSchedule" {
+            $dto = [GroupEvent.GroupLockSchedulerDto]::new(1,"yaya",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00")
+            $manager.NewGroupLockSchedule($dto)
+            $dto.GroupName = "ohno"
+            $manager.SetGroupLockSchedule($dto)
+            $res = $manager.GetGroupLockSchedule($dto)
+            $res.GroupName | should -be "ohno" 
+        }
+
+        It "Should remove an existing GroupLockSchedule with RemoveGroupLockSchedule" {
+            $dto = [GroupEvent.GroupLockSchedulerDto]::new(1,"yaya",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00")
+            $manager.NewGroupLockSchedule($dto)
+            $manager.RemoveGroupLockSchedule($dto)
+            $res = $manager.GetGroupLockSchedule($dto)
+            $res | Should -Be $null
+        }
+
+        It "Should remove all provided GroupLockSchedules with RemoveGroupLockSchedule" {
+            $dto = [GroupEvent.GroupLockSchedulerDto]::new(1,"yaya",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00")
+            $dto2 = [GroupEvent.GroupLockSchedulerDto]::new(2,"ohno",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00")
+            $dto, $dto2 | % {$manager.NewGroupLockSchedule($_)}
+            $res = $manager.GetGroupLockSchedule()
+            $res | should -HaveCount 2
+            $manager.RemoveGroupLockSchedule(@($dto, $dto2))
+            $res = $manager.GetGroupLockSchedule()
+            $res | should -HaveCount 0
+        }
+
+        It "Should not remove GroupLockSchedules not provided to RemoveGroupLockSchedule" {
+            $dto = [GroupEvent.GroupLockSchedulerDto]::new(1,"yaya",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00")
+            $dto2 = [GroupEvent.GroupLockSchedulerDto]::new(2,"ohno",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00")
+            $dto, $dto2 | % {$manager.NewGroupLockSchedule($_)}
+            $res = $manager.GetGroupLockSchedule()
+            $res | should -HaveCount 2
+            $manager.RemoveGroupLockSchedule($dto2)
+            $res = $manager.GetGroupLockSchedule()
+            $res | should -HaveCount 1
+            $res.GroupId | should -Be 1
+        }
+
+        It "NewGroupLockSchedule should enforce groupId to be unqiue" {
+            [GroupEvent.GroupLockSchedulerDto]::new(1,"yaya",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00"),
+            [GroupEvent.GroupLockSchedulerDto]::new(1,"ohno",[GroupEvent.PowerState]::On, [TimeOnly]"01:00:00",[TimeOnly]"06:00:00") | % {
+                $manager.NewGroupLockSchedule($_)
+            }
+            $res = $manager.GetGroupLockSchedule()
+            $res | should -HaveCount 1
+            $res.GroupName | should -Be "yaya"
+        }
+
+    }
+
     Context "GroupPowerEventLog" -Tag "GroupPowerEventLog" {
 
         BeforeEach {
