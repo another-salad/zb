@@ -187,6 +187,7 @@ Describe "GroupManager DataBase Tests" -Tag "DB" {
             $res.PowerState | should -Be ([GroupEvent.PowerState]::On)
             $res.StartTime | should -Be ([TimeOnly]"01:00:00")
             $res.ReleaseTime | should -Be ([TimeOnly]"06:00:00")
+            $res.LastModified.Date | should -Be (get-date).Date
         }
 
         It "Should update an existing GroupLockSchedule with SetGroupLockSchedule" {

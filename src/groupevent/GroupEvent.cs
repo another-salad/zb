@@ -156,11 +156,12 @@ namespace GroupEvent {
             
         private static readonly Expression<Func<GroupLockScheduler, GroupLockSchedulerDto>> _toSDto = 
             sd => new GroupLockSchedulerDto {
-                GroupId     = sd.GroupId,
-                GroupName   = sd.GroupName,
-                PowerState  = sd.PowerState,
-                StartTime   = sd.StartTime,
-                ReleaseTime = sd.ReleaseTime
+                GroupId      = sd.GroupId,
+                GroupName    = sd.GroupName,
+                PowerState   = sd.PowerState,
+                StartTime    = sd.StartTime,
+                ReleaseTime  = sd.ReleaseTime,
+                LastModified = sd.LastModified
             };
     
         private static (DateTime from, DateTime to) ResolveDateRange(DateTime? from, DateTime? to){
