@@ -299,6 +299,11 @@ namespace GroupEvent {
             SetGroupLockSchedule(schedulerDto.GroupId, schedulerDto.GroupName!, schedulerDto.PowerState, schedulerDto.StartTime, schedulerDto.ReleaseTime);
         }
 
+        public void SetGroupLockSchedule(List<GroupLockSchedulerDto> schedulerDtos) {
+            // Note(AnotherSalad): should update all appropriate set methods to support passing in an array of DTOs.
+            schedulerDtos.ForEach(SetGroupLockSchedule);
+        }
+
         public List<GroupLockSchedulerDto> GetGroupLockSchedule() {
             return [.. _context.GroupLockScheduler.Select(s => new GroupLockSchedulerDto {
                 GroupId      = s.GroupId,
