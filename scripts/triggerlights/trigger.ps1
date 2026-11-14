@@ -76,6 +76,46 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
         $True
     }
 
+    enum PowerStateToBool {
+        On =  $True
+        Off = $False
+    }
+
+    Register-EngineEvent -SourceIdentifier "Cronish" -Action {
+        $CurrentDate = Get-Date -AsUTC
+        $currentTime = [timeonly]($CurrentDate).ToLongTimeString()
+        $manager.GetGroupLockSchedule() | % {
+            $Group = Get-GroupByName -Name $_.GroupName
+            $Locked = $manager.GetGroupLock($Group.Id)
+            if ($Locked) {
+                if ($Locked.ReleaseTime -lt $CurrentDate) {
+                    Write-Debug "Nuking lock for '$($Group.name)' due to time expiry"
+                    $manager.RemoveGroupLock($Group.Id)
+                } else {
+                    return # group has a valid lock, get outta here
+                }
+            }
+            $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $Config.OnOffOnlyGroups) {$False} else {$True}) -Force
+            $ScheduledState = [PowerStateToBool]::($_.PowerState)
+            # Invert the state if we aren't in active hours, as the DB only stores active hours state (i.e. on or off)
+            # If we are here there are no locks, it seems easy enough to just make sure the lights are in the state we expect, and
+            # get out if they are. I don't think its worth adding another lock below, presence and button events can handle that.
+            $TargetOn = if (($currentTime -ge $_.StartTime) -and ($currentTime -le $_.ReleaseTime)) {$ScheduledState} else {!$ScheduledState}
+            if ($Group.state.any_on -ne $TargetOn) {
+                $LightGroupState = $Group | New-LightGroupState -transitiontime 10
+                if ($TargetOn) {
+                    if ($Group.SupportsBrightness) {
+                        $LightGroupState.Bri = $Config.MaximumLightBrightness
+                    }
+                } else {
+                    $LightGroupState.Bri = $null
+                    $LightGroupState.On = $false
+                }
+                $LightGroupState | Set-LightGroupState
+            }
+        }
+    }
+
     Register-EngineEvent -SourceIdentifier $EventName.Presence -Action {
         $darknessEventType = 423
         $darknessLockOffset = $manager.GetPowerEventOffset($darknessEventType)  # $manager.NewPowerEventOffset(423, (New-TimeSpan -Hours 12))
@@ -83,7 +123,7 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
             $_.TriggerGroup | % {
                 $TriggerGroup = $_
                 $Group = Get-GroupByName -Name $TriggerGroup  # Gets the group state from the API
-                $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $Event.MessageData.OnOffOnlyGroups) {$False} else {$True}) -Force
+                $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $Config.OnOffOnlyGroups) {$False} else {$True}) -Force
                 # So we will have multiple sensors in one area, as we walk through said area each sensor will be processed. We don't want subsequent states
                 # from tripping us up. So we have to consider if the group has already been processed due to an earlier (but still _current_) event.
                 # To do this we will have the concept of effective darkness. If presence is detected and we are effectively in darkness (i.e. its dark, or sensors are set to ignore light levels)
@@ -116,7 +156,7 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
 
                 $LightGroupState = $Group | New-LightGroupState -transitiontime 10
                 if ($Group.SupportsBrightness) {
-                    $LightGroupState.Bri = $Event.MessageData.MaximumLightBrightness
+                    $LightGroupState.Bri = $Config.MaximumLightBrightness
                 }
 
                 $IgnoreDaylightSetting = Test-AnySensorProperty -Sensors ($TriggerSensors | Where-Object { $TriggerGroup -in $_.TriggerGroup }) -Predicate { $_.IgnoreDaylight }
@@ -141,10 +181,10 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
             $_.TriggerGroup | % {
                 $TriggerGroup = $_
                 $Group = Get-GroupByName -Name $TriggerGroup  # Gets the group state from the API
-                $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $Event.MessageData.OnOffOnlyGroups) {$False} else {$True}) -Force
+                $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $Config.OnOffOnlyGroups) {$False} else {$True}) -Force
                 $LightGroupState = $Group | New-LightGroupState -transitiontime 10
                 if ($Group.SupportsBrightness) {
-                    $LightGroupState.Bri = $Event.MessageData.MaximumLightBrightness
+                    $LightGroupState.Bri = $Config.MaximumLightBrightness
                 }
                 # Super speedy check if there are any presence sensors in our group before doing too much other work.
                 if (!($TriggerSensors | Where-Object { $TriggerGroup -in $_.TriggerGroup } | where type -eq ZHAPresence)) {
@@ -225,7 +265,7 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
                 } else {
                     $LightGroupState.Bri = if ($buttonEvent -lt 3000) {
                         # 200X events are to increase light levels
-                        [math]::Min($Group.action.bri + 40, $Event.MessageData.MaximumLightBrightness)  # don't want to go above max brightness
+                        [math]::Min($Group.action.bri + 40, $Config.MaximumLightBrightness)  # don't want to go above max brightness
                     } elseif ($buttonEvent -lt 4000) {
                         # 300X events are to decrease
                         [math]::Max($Group.action.bri - 40, 20)  # don't want to go below zero
@@ -245,14 +285,7 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
         while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
             $sensorEvent = $ws | Receive-WsData | where id -in $triggerSensors.ApiId
             if ($sensorEvent) {
-                $EventData = [pscustomobject]@{
-                    sensorEvent            = $sensorEvent
-                    # I know the unpacking is a little hideous, but I still think its nicer to hold for the events if the config is unpacked.
-                    OnOffOnlyGroups        = $Config.OnOffOnlyGroups
-                    ModulesToImport        = $Config.ModulesToImport
-                    Hostname               = $Config.HostName
-                    MaximumLightBrightness = $Config.MaximumLightBrightness
-                }
+                $EventData = [pscustomobject]@{sensorEvent=$sensorEvent}
                 # We care about buttonevents (dimmer or standard) or presence updates, generic state changed events can be dropped to the floor
                 if ($sensorEvent.state.ButtonEvent) {
                     # We can be a normal button press or a dimmer
@@ -267,12 +300,14 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
                 } elseif ($sensorEvent.state | gm -name Presence) {
                     New-Event -SourceIdentifier $EventName.Presence -MessageData $EventData
                 }
-            }    
+            }
+            # Judge if always calling this causes too much of a resource hit
+            New-Event -SourceIdentifier "Cronish"
         }      
     } finally {
         $ws | Close-WsConnection
     }
-} -ArgumentList $EventName, $Config -ThrottleLimit 10
+} -ArgumentList $EventName, $Config -ThrottleLimit 30
 
 if ($Block) {
     # Wait for job to start

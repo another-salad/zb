@@ -1,0 +1,34 @@
+name: GroupEvent Pester tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/groupevent/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/groupevent/**'
+      - '.github/workflows/**'
+
+jobs:
+  test:
+    # ok, here is some logic, ubuntu-latest is actually 24.04, it will be switching to 26.04 in november
+    # now I chose latest because I didn't want to manage shit like this.
+    # I'll switch back when latest is somewhat latest again.
+    runs-on: ubuntu-26.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Invoke-Pester -Path ./src/groupevent/tests -Output Detailed

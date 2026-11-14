@@ -15,7 +15,7 @@ namespace groupevent.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.1");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
             modelBuilder.Entity("GroupEvent.GroupLock", b =>
                 {
@@ -46,6 +46,38 @@ namespace groupevent.Migrations
                     b.HasIndex("GroupName");
 
                     b.ToTable("GroupLock");
+                });
+
+            modelBuilder.Entity("GroupEvent.GroupLockScheduler", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("GroupId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("GroupName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PowerState")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<TimeOnly>("ReleaseTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeOnly>("StartTime")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId")
+                        .IsUnique();
+
+                    b.ToTable("GroupLockScheduler");
                 });
 
             modelBuilder.Entity("GroupEvent.GroupPowerEventLog", b =>
