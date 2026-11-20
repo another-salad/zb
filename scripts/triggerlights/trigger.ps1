@@ -95,13 +95,11 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
                     return # group has a valid lock, get outta here
                 }
             }
-            $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $Config.OnOffOnlyGroups) {$False} else {$True}) -Force
             $ScheduledState = [PowerStateToBool]::($_.PowerState)
             # Invert the state if we aren't in active hours, as the DB only stores active hours state (i.e. on or off)
-            # If we are here there are no locks, it seems easy enough to just make sure the lights are in the state we expect, and
-            # get out if they are. I don't think its worth adding another lock below, presence and button events can handle that.
             $TargetOn = if (($currentTime -ge $_.StartTime) -and ($currentTime -le $_.ReleaseTime)) {$ScheduledState} else {!$ScheduledState}
             if ($Group.state.any_on -ne $TargetOn) {
+                $Group | Add-Member -MemberType NoteProperty -Name SupportsBrightness -Value $(if ($Group.Name -in $Config.OnOffOnlyGroups) {$False} else {$True}) -Force
                 $LightGroupState = $Group | New-LightGroupState -transitiontime 10
                 if ($TargetOn) {
                     if ($Group.SupportsBrightness) {
@@ -110,6 +108,13 @@ $job = Start-ThreadJob -name LightManager -scriptblock {
                 } else {
                     $LightGroupState.Bri = $null
                     $LightGroupState.On = $false
+                }
+                # To avoid lights flickering if they also have a presence sensor, lets lock. Past me was an idiot.
+                $GroupLock = [GroupEvent.GroupLockDTO]::new([int]$Group.id, $Group.Name, [int]404, $_.PowerState, [DateTime]($_.ReleaseTime).ToLongTimeString())
+                if ($manager.GetGroupLock($Group.id)) {
+                    $manager.SetGroupLock($GroupLock)
+                } else {
+                    $manager.NewGroupLock($GroupLock)
                 }
                 $LightGroupState | Set-LightGroupState
             }
